@@ -2,11 +2,14 @@ import { forwardRef, useState, useEffect, useMemo, useRef, useCallback } from "r
 import { useTranslation } from "react-i18next";
 import { useTabStore, useActiveTab } from "@/stores/tab-store";
 import { useEnvironmentStore } from "@/stores/environment-store";
+import { useToastStore } from "@/stores/toast-store";
 import type { HttpMethod, EnvironmentData } from "@apiark/types";
 import { Loader2, Send, AlertCircle, Check } from "lucide-react";
-import * as Popover from "@radix-ui/react-popover";
 import { HintTooltip } from "@/components/ui/hint-tooltip";
-import { saveEnvironment } from "@/lib/tauri-api";
+import * as Popover from "@radix-ui/react-popover";
+import { saveEnvironment, parseCurlCommand } from "@/lib/tauri-api";
+import { looksLikeCurl } from "@/lib/curl-detector";
+import { applyParsedCurlToCurrentTab } from "@/lib/apply-parsed-curl";
 
 const METHODS: HttpMethod[] = [
   "GET",
@@ -221,8 +224,11 @@ export const UrlBar = forwardRef<HTMLInputElement, UrlBarProps>(function UrlBar(
   const { t } = useTranslation();
   const tab = useActiveTab();
   const { setMethod, setUrl, send } = useTabStore();
+  const showSuccess = useToastStore((s) => s.showSuccess);
+  const showError = useToastStore((s) => s.showError);
   const [resolvedVars, setResolvedVars] = useState<Record<string, string>>({});
   const [inputFocused, setInputFocused] = useState(false);
+
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Merge forwarded ref with local ref
@@ -302,6 +308,39 @@ export const UrlBar = forwardRef<HTMLInputElement, UrlBarProps>(function UrlBar(
     }
   };
 
+  /**
+   * Parse a cURL string and apply its components to the current tab.
+   * Note: we deliberately do NOT clear the URL input afterwards —
+   * `applyParsedCurlToCurrentTab` already sets `tab.url` to the parsed URL,
+   * and the URL <input> is controlled by `tab.url`, so it will redisplay
+   * the canonical URL on its own. (Earlier we did `setUrl("")` after, which
+   * wiped both the parsed URL AND its derived query params — a bug.)
+   */
+  const parseAndApplyCurl = useCallback(async (raw: string) => {
+    try {
+      const parsed = await parseCurlCommand(raw.trim());
+      applyParsedCurlToCurrentTab(parsed);
+      showSuccess(t("request.curlParsedSuccess"));
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      showError(`${t("request.curlParseFailed")}: ${msg}`);
+    }
+  }, [showSuccess, showError, t]);
+
+  const handlePaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    const text = e.clipboardData.getData("text");
+    if (looksLikeCurl(text)) {
+      // Intercept paste: replace giant cURL string with parsed result
+      // directly, no confirmation dialog.
+      e.preventDefault();
+      // Clear the URL field visually BEFORE parsing so the giant string
+      // doesn't flash. `applyParsedCurlToCurrentTab` will then set the
+      // real URL into `tab.url`, which the input is bound to.
+      setUrl("");
+      void parseAndApplyCurl(text);
+    }
+  };
+
   return (
     <div data-tour="url-bar" className="flex items-center gap-3 bg-[var(--color-card)] px-4 py-3">
       {/* Method selector — show static badge for non-HTTP protocols */}
@@ -341,7 +380,10 @@ export const UrlBar = forwardRef<HTMLInputElement, UrlBarProps>(function UrlBar(
           ref={setRefs}
           type="text"
           value={tab.url}
-          onChange={(e) => setUrl(e.target.value)}
+          onChange={(e) => {
+            setUrl(e.target.value);
+          }}
+          onPaste={handlePaste}
           onKeyDown={handleKeyDown}
           onFocus={() => setInputFocused(true)}
           onBlur={() => setInputFocused(false)}

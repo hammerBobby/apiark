@@ -76,6 +76,8 @@
     "sending": "送信中...",
     "cancel": "キャンセル",
     "urlPlaceholder": "リクエスト URL を入力...",
+    "curlParsedSuccess": "cURL をメソッド／URL／ヘッダー／ボディに展開しました",
+    "curlParseFailed": "cURL の解析に失敗しました",
     "params": "パラメータ",
     "headers": "ヘッダー",
     "body": "ボディ",

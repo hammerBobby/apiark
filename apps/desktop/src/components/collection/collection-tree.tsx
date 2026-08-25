@@ -790,6 +790,11 @@ function TreeNodeRow({
                     },
                   },
                   {
+                    label: t("sidebar.newFolder"),
+                    icon: FolderPlus,
+                    onClick: handleNewFolder,
+                  },
+                  {
                     label: t("sidebar.deleteCollection"),
                     icon: Trash2,
                     onClick: () => {

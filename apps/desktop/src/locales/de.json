@@ -76,6 +76,8 @@
     "sending": "Senden...",
     "cancel": "Abbrechen",
     "urlPlaceholder": "Anfrage-URL eingeben...",
+    "curlParsedSuccess": "cURL in Methode, URL, Header und Body umgewandelt",
+    "curlParseFailed": "cURL konnte nicht geparst werden",
     "params": "Parameter",
     "headers": "Header",
     "body": "Body",

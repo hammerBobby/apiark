@@ -4,7 +4,7 @@ import { useCollectionStore } from "@/stores/collection-store";
 import { CollectionTree } from "./collection-tree";
 import { EnvironmentSelector } from "@/components/environment/environment-selector";
 import { HistoryPanel } from "@/components/history/history-panel";
-import { FolderOpen, FolderPlus, ChevronDown, ChevronRight, Settings, Search, X, Upload } from "lucide-react";
+import { FolderOpen, FolderPlus, ChevronDown, ChevronRight, Settings, Search, X, Upload, Plus } from "lucide-react";
 import { EmptyState, FolderPlusIcon } from "@/components/ui/empty-state";
 import { open } from "@tauri-apps/plugin-dialog";
 import { createCollection } from "@/lib/tauri-api";
@@ -81,17 +81,28 @@ export function CollectionSidebar({ onOpenSettings, collapsed, envSelectorRef, o
       <div className="flex-1 overflow-y-auto">
         {/* Collections section */}
         <div>
-          <button
-            onClick={() => toggleSection("collections")}
-            className="flex w-full items-center gap-1 px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]"
-          >
-            {expandedSections.has("collections") ? (
-              <ChevronDown className="h-3 w-3" />
-            ) : (
-              <ChevronRight className="h-3 w-3" />
-            )}
-            {t("sidebar.collections")}
-          </button>
+          <div className="flex items-center">
+            <button
+              onClick={() => toggleSection("collections")}
+              className="flex flex-1 items-center gap-1 px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]"
+            >
+              {expandedSections.has("collections") ? (
+                <ChevronDown className="h-3 w-3" />
+              ) : (
+                <ChevronRight className="h-3 w-3" />
+              )}
+              {t("sidebar.collections")}
+            </button>
+            {/* Top-level "+" affordance — quick-access to "New Collection" dialog */}
+            <button
+              onClick={() => setNewCollectionOpen(true)}
+              title={t("sidebar.newCollection")}
+              aria-label={t("sidebar.newCollection")}
+              className="mr-1 flex h-6 w-6 shrink-0 items-center justify-center rounded text-[var(--color-text-muted)] hover:bg-[var(--color-elevated)] hover:text-[var(--color-text-secondary)]"
+            >
+              <Plus className="h-3.5 w-3.5" />
+            </button>
+          </div>
 
           {expandedSections.has("collections") && (
             <div className="px-1 pb-2">

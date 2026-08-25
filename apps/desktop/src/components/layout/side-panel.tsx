@@ -78,12 +78,27 @@ export function SidePanel({
 
 function CollectionsPanel({ onOpenImport }: { onOpenImport?: () => void }) {
   const { t } = useTranslation();
-  const { collections, openCollection, closeCollection } = useCollectionStore();
+  const { collections, openCollection, closeCollection, createFolder } = useCollectionStore();
   const [searchQuery, setSearchQuery] = useState("");
   const [newCollectionOpen, setNewCollectionOpen] = useState(false);
   const [collectionMenu, setCollectionMenu] = useState<{ x: number; y: number; path: string; name: string } | null>(null);
   const [deleteCollectionTarget, setDeleteCollectionTarget] = useState<{ path: string; name: string } | null>(null);
   const [defaultsPath, setDefaultsPath] = useState<string | null>(null);
+  const [newFolderTarget, setNewFolderTarget] = useState<{ path: string; name: string } | null>(null);
+
+  const handleCreateFolder = async (name: string) => {
+    if (!newFolderTarget) return;
+    try {
+      // Create the folder inside the collection directory.
+      await createFolder(newFolderTarget.path, name);
+    } catch (err) {
+      import("@/stores/toast-store").then(({ useToastStore }) =>
+        useToastStore.getState().showError(`Failed to create folder: ${err}`),
+      );
+    } finally {
+      setNewFolderTarget(null);
+    }
+  };
 
   const handleOpenFolder = async () => {
     try {
@@ -202,6 +217,16 @@ function CollectionsPanel({ onOpenImport }: { onOpenImport?: () => void }) {
                 </button>
                 <button
                   onClick={() => {
+                    setNewFolderTarget({ path: collectionMenu.path, name: collectionMenu.name });
+                    setCollectionMenu(null);
+                  }}
+                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-border)]"
+                >
+                  <FolderPlus className="h-3.5 w-3.5" />
+                  {t("sidebar.newFolder")}
+                </button>
+                <button
+                  onClick={() => {
                     setDeleteCollectionTarget({ path: collectionMenu.path, name: collectionMenu.name });
                     setCollectionMenu(null);
                   }}
@@ -286,6 +311,13 @@ function CollectionsPanel({ onOpenImport }: { onOpenImport?: () => void }) {
           </Dialog.Content>
         </Dialog.Portal>
       </Dialog.Root>
+
+      {/* New folder in collection */}
+      <NewFolderDialog
+        target={newFolderTarget}
+        onOpenChange={(open) => { if (!open) setNewFolderTarget(null); }}
+        onSubmit={handleCreateFolder}
+      />
 
       {/* Collection Defaults Dialog */}
       {defaultsPath && (
@@ -1087,5 +1119,81 @@ function ToolPanel({
         {actionLabel}
       </button>
     </div>
+  );
+}
+
+function NewFolderDialog({
+  target,
+  onOpenChange,
+  onSubmit,
+}: {
+  target: { path: string; name: string } | null;
+  onOpenChange: (open: boolean) => void;
+  onSubmit: (name: string) => void;
+}) {
+  const { t } = useTranslation();
+  const [value, setValue] = useState("");
+
+  useEffect(() => {
+    if (target) setValue("");
+  }, [target]);
+
+  const isOpen = !!target;
+
+  const handleSubmit = () => {
+    if (!value.trim()) return;
+    onSubmit(value.trim());
+  };
+
+  return (
+    <Dialog.Root open={isOpen} onOpenChange={onOpenChange}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 z-50 bg-black/50" />
+        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[360px] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] shadow-xl">
+          <div className="flex items-center justify-between border-b border-[var(--color-border)] px-4 py-3">
+            <Dialog.Title className="text-sm font-semibold text-[var(--color-text-primary)]">
+              {t("sidebar.newFolder")}
+            </Dialog.Title>
+            <Dialog.Close asChild>
+              <button className="text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]">
+                <X className="h-4 w-4" />
+              </button>
+            </Dialog.Close>
+          </div>
+          <div className="px-4 py-4">
+            <p className="mb-3 text-xs text-[var(--color-text-muted)]">
+              {t("sidebar.folderInCollection", { collection: target?.name ?? "" })}
+            </p>
+            <input
+              autoFocus
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  handleSubmit();
+                }
+              }}
+              placeholder={t("sidebar.folderNamePlaceholder", "Folder name")}
+              className="w-full rounded border border-[var(--color-border)] bg-[var(--color-elevated)] px-3 py-2 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--color-accent)]"
+            />
+          </div>
+          <div className="flex justify-end gap-2 border-t border-[var(--color-border)] px-4 py-3">
+            <Dialog.Close asChild>
+              <button className="rounded-lg px-4 py-1.5 text-sm text-[var(--color-text-muted)] hover:bg-[var(--color-elevated)]">
+                {t("common.cancel", "Cancel")}
+              </button>
+            </Dialog.Close>
+            <button
+              onClick={handleSubmit}
+              disabled={!value.trim()}
+              className="rounded-lg bg-[var(--color-accent)] px-4 py-1.5 text-sm font-medium text-white hover:brightness-110 disabled:opacity-50"
+            >
+              {t("common.create")}
+            </button>
+          </div>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }

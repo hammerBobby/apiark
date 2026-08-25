@@ -76,6 +76,8 @@
     "sending": "전송 중...",
     "cancel": "취소",
     "urlPlaceholder": "요청 URL 입력...",
+    "curlParsedSuccess": "cURL이 메서드/URL/헤더/본문으로 분석되었습니다",
+    "curlParseFailed": "cURL 분석 실패",
     "params": "매개변수",
     "headers": "헤더",
     "body": "본문",

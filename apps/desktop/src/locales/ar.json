@@ -76,6 +76,8 @@
     "sending": "جارٍ الإرسال...",
     "cancel": "إلغاء",
     "urlPlaceholder": "أدخل عنوان URL للطلب...",
+    "curlParsedSuccess": "تم تحليل cURL إلى طريقة وعنوان ورؤوس وجسم",
+    "curlParseFailed": "فشل تحليل cURL",
     "params": "المعاملات",
     "headers": "الترويسات",
     "body": "المحتوى",

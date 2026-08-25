@@ -2,11 +2,7 @@ import { useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { X, Upload } from "lucide-react";
 import { parseCurlCommand } from "@/lib/tauri-api";
-import { useTabStore } from "@/stores/tab-store";
-import type { HttpMethod, KeyValuePair, BodyType } from "@apiark/types";
-
-let kvCounter = 0;
-const kvId = () => `kv_${Date.now()}_${++kvCounter}`;
+import { applyParsedCurlToCurrentTab } from "@/lib/apply-parsed-curl";
 
 interface CurlImportDialogProps {
   open: boolean;
@@ -26,41 +22,7 @@ export function CurlImportDialog({ open, onOpenChange }: CurlImportDialogProps) 
 
     try {
       const parsed = await parseCurlCommand(curlInput.trim());
-
-      const { newTab, setMethod, setUrl, setHeaders, setBody, setAuth } =
-        useTabStore.getState();
-      newTab();
-
-      // Small delay to let tab render
-      setTimeout(() => {
-        setMethod(parsed.method as HttpMethod);
-        setUrl(parsed.url);
-
-        // Set headers
-        const headers: KeyValuePair[] = Object.entries(parsed.headers).map(
-          ([key, value]) => ({ id: kvId(), key, value, enabled: true }),
-        );
-        if (headers.length > 0) setHeaders([...headers, { id: kvId(), key: "", value: "", enabled: true }]);
-
-        // Set body
-        if (parsed.body) {
-          setBody({
-            type: (parsed.bodyType as BodyType) ?? "raw",
-            content: parsed.body,
-            formData: [],
-          });
-        }
-
-        // Set auth
-        if (parsed.authBasic) {
-          setAuth({
-            type: "basic",
-            username: parsed.authBasic[0],
-            password: parsed.authBasic[1],
-          });
-        }
-      }, 0);
-
+      applyParsedCurlToCurrentTab(parsed);
       setCurlInput("");
       onOpenChange(false);
     } catch (err) {

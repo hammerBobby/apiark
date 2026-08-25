@@ -76,6 +76,8 @@
     "sending": "Enviando...",
     "cancel": "Cancelar",
     "urlPlaceholder": "Ingresa la URL de la solicitud...",
+    "curlParsedSuccess": "cURL analizado en método, URL, encabezados y cuerpo",
+    "curlParseFailed": "Error al analizar cURL",
     "params": "Parámetros",
     "headers": "Encabezados",
     "body": "Cuerpo",

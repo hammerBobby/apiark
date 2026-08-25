@@ -1,8 +1,8 @@
 {
   "$schema": "https://raw.githubusercontent.com/tauri-apps/tauri/dev/crates/tauri-config-schema/schema.json",
   "productName": "ApiArk",
-  "version": "0.4.6",
-  "identifier": "dev.apiark.app",
+  "version": "0.4.7",
+  "identifier": "dev.apiark.desktop",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:1420",

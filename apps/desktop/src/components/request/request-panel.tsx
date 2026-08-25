@@ -7,13 +7,7 @@ import { oauthStartFlow, oauthGetTokenStatus, oauthClearToken } from "@/lib/taur
 import { HintTooltip } from "@/components/ui/hint-tooltip";
 import { CodeEditor } from "@/components/ui/code-editor";
 import { Plus, Trash2, FileUp } from "lucide-react";
-
-/** Extract :paramName path variables from a URL */
-function extractPathVariables(url: string): string[] {
-  const matches = url.match(/:([\w]+)/g);
-  if (!matches) return [];
-  return [...new Set(matches.map((m) => m.slice(1)))];
-}
+import { extractPathVarsFromUrl as extractPathVariables } from "@/lib/path-vars";
 
 type Tab = "params" | "headers" | "body" | "auth" | "scripts" | "tests";
 
