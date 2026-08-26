@@ -114,7 +114,9 @@
     "urlencoded": "URL Encoded",
     "raw": "خام",
     "binary": "ثنائي",
-    "none": "بدون"
+    "none": "بدون",
+    "format": "تنسيق",
+    "minify": "ضغط"
   },
   "auth": {
     "type": "نوع المصادقة",

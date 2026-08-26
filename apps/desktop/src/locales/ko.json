@@ -114,7 +114,9 @@
     "urlencoded": "URL Encoded",
     "raw": "원시",
     "binary": "바이너리",
-    "none": "없음"
+    "none": "없음",
+    "format": "포맷",
+    "minify": "최소화"
   },
   "auth": {
     "type": "인증 유형",

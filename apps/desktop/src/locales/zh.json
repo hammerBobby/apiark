@@ -118,7 +118,9 @@
     "urlencoded": "URL Encoded",
     "raw": "原始",
     "binary": "二进制",
-    "none": "无"
+    "none": "无",
+    "format": "格式化",
+    "minify": "压缩"
   },
   "auth": {
     "type": "认证类型",

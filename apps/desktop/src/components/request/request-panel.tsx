@@ -6,7 +6,7 @@ import type { AuthConfig, BodyType, RequestBody, KeyValuePair, OAuth2GrantType, 
 import { oauthStartFlow, oauthGetTokenStatus, oauthClearToken } from "@/lib/tauri-api";
 import { HintTooltip } from "@/components/ui/hint-tooltip";
 import { CodeEditor } from "@/components/ui/code-editor";
-import { Plus, Trash2, FileUp } from "lucide-react";
+import { Plus, Trash2, FileUp, Braces, Minimize2 } from "lucide-react";
 import { extractPathVarsFromUrl as extractPathVariables } from "@/lib/path-vars";
 
 type Tab = "params" | "headers" | "body" | "auth" | "scripts" | "tests";
@@ -478,8 +478,27 @@ function BodyEditor({
   onChange: (body: RequestBody) => void;
 }) {
   const { t } = useTranslation();
+
+  const handleFormatJson = useCallback(() => {
+    try {
+      const parsed = JSON.parse(body.content);
+      onChange({ ...body, content: JSON.stringify(parsed, null, 2) });
+    } catch {
+      // ignore invalid JSON
+    }
+  }, [body, onChange]);
+
+  const handleMinifyJson = useCallback(() => {
+    try {
+      const parsed = JSON.parse(body.content);
+      onChange({ ...body, content: JSON.stringify(parsed) });
+    } catch {
+      // ignore invalid JSON
+    }
+  }, [body, onChange]);
+
   return (
-    <div className="space-y-3">
+    <div className="flex h-full flex-col gap-3">
       {/* Body type selector */}
       <div className="flex gap-2">
         {BODY_TYPE_IDS.map((btId) => (
@@ -499,13 +518,37 @@ function BodyEditor({
 
       {/* Body content */}
       {body.type !== "none" && body.type !== "form-data" && body.type !== "urlencoded" && (
-        <CodeEditor
-          value={body.content}
-          onChange={(v) => onChange({ ...body, content: v })}
-          language={body.type === "json" ? "json" : body.type === "xml" ? "xml" : "plaintext"}
-          height="220px"
-          placeholder={body.type === "json" ? '{\n  "key": "value"\n}' : ""}
-        />
+        <div className="flex min-h-0 flex-1 flex-col gap-2">
+          {body.type === "json" && (
+            <div className="flex items-center justify-end gap-2">
+              <button
+                onClick={handleFormatJson}
+                className="flex items-center gap-1 rounded px-2 py-1 text-xs text-[var(--color-text-muted)] hover:bg-[var(--color-elevated)] hover:text-[var(--color-text-secondary)]"
+                title={t("body.format")}
+              >
+                <Braces className="h-3 w-3" />
+                {t("body.format")}
+              </button>
+              <button
+                onClick={handleMinifyJson}
+                className="flex items-center gap-1 rounded px-2 py-1 text-xs text-[var(--color-text-muted)] hover:bg-[var(--color-elevated)] hover:text-[var(--color-text-secondary)]"
+                title={t("body.minify")}
+              >
+                <Minimize2 className="h-3 w-3" />
+                {t("body.minify")}
+              </button>
+            </div>
+          )}
+          <div className="min-h-0 flex-1">
+            <CodeEditor
+              value={body.content}
+              onChange={(v) => onChange({ ...body, content: v })}
+              language={body.type === "json" ? "json" : body.type === "xml" ? "xml" : "plaintext"}
+              height="100%"
+              placeholder={body.type === "json" ? '{\n  "key": "value"\n}' : ""}
+            />
+          </div>
+        </div>
       )}
 
       {body.type === "urlencoded" && (

@@ -114,7 +114,9 @@
     "urlencoded": "URL Encoded",
     "raw": "生データ",
     "binary": "バイナリ",
-    "none": "なし"
+    "none": "なし",
+    "format": "整形",
+    "minify": "圧縮"
   },
   "auth": {
     "type": "認証タイプ",

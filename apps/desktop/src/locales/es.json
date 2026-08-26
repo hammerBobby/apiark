@@ -114,7 +114,9 @@
     "urlencoded": "URL Encoded",
     "raw": "Sin formato",
     "binary": "Binario",
-    "none": "Ninguno"
+    "none": "Ninguno",
+    "format": "Formatear",
+    "minify": "Minificar"
   },
   "auth": {
     "type": "Tipo de autenticación",
