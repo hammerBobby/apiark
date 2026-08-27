@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
+import type { KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { useTabStore, useActiveTab } from "@/stores/tab-store";
 import { KeyValueEditor } from "./key-value-editor";
@@ -52,6 +53,17 @@ export function RequestPanel() {
   } = useTabStore();
 
   const pathVars = useMemo(() => tab ? extractPathVariables(tab.url) : [], [tab?.url]);
+
+  // When switching to a different request, auto-activate the body tab if the
+  // request has an actual body (json/form-data/etc.), otherwise stay on params.
+  // New requests (body type "none") remain on params. This only reacts to
+  // request changes (tab.id), never to the user's manual tab clicks.
+  const activeTabId = tab?.id ?? null;
+  useEffect(() => {
+    if (!tab) return;
+    setActiveTab(tab.body && tab.body.type !== "none" ? "body" : "params");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTabId]);
 
   if (!tab) return null;
 
@@ -296,6 +308,36 @@ function FormDataEditor({
     }
   };
 
+  /**
+   * Pressing Tab on a value input should move to the next row's key input,
+   * adding a new empty row when already on the last row — instead of jumping
+   * to the row's delete button.
+   */
+  const focusKeyById = (rowId: string) => {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const el = document.querySelector<HTMLInputElement>(
+          `input[data-kv-id="${CSS.escape(rowId)}"]`,
+        );
+        el?.focus();
+        el?.select();
+      });
+    });
+  };
+
+  const handleValueTab = (index: number, e: KeyboardEvent) => {
+    if (e.key !== "Tab") return;
+    e.preventDefault();
+    let targetId: string;
+    if (index === pairs.length - 1) {
+      targetId = formKvId();
+      onChange([...pairs, { id: targetId, key: "", value: "", enabled: true }]);
+    } else {
+      targetId = pairs[index + 1].id;
+    }
+    focusKeyById(targetId);
+  };
+
   return (
     <div className="space-y-1">
       <div className="grid grid-cols-[auto_1fr_1fr_auto_auto] items-center gap-2 px-1 text-xs text-[var(--color-text-muted)]">
@@ -319,6 +361,7 @@ function FormDataEditor({
           />
           <input
             type="text"
+            data-kv-id={pair.id}
             value={pair.key}
             onChange={(e) => update(index, "key", e.target.value)}
             placeholder={t("request.field")}
@@ -327,6 +370,7 @@ function FormDataEditor({
           <div className="flex items-center gap-1">
             <input
               type="text"
+              data-kv-id={pair.id}
               value={pair.value}
               onChange={(e) => {
                 const updated = pairs.map((p, i) =>
@@ -334,6 +378,7 @@ function FormDataEditor({
                 );
                 onChange(updated);
               }}
+              onKeyDown={(e) => handleValueTab(index, e)}
               placeholder={pair.valueType === "file" ? t("request.filePath") : t("request.value")}
               className={`min-w-0 flex-1 rounded bg-[var(--color-elevated)] px-2 py-1 text-sm outline-none focus:ring-1 focus:ring-blue-500 ${
                 pair.valueType === "file"
