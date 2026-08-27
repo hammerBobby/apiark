@@ -180,6 +180,7 @@ fn import_postman_items(
                     Some(RequestBodyFile {
                         body_type: body_type.to_string(),
                         content,
+                        form_data: Vec::new(),
                     })
                 }
             });
@@ -337,6 +338,7 @@ fn import_insomnia_children(
                     Some(RequestBodyFile {
                         body_type: body_type.to_string(),
                         content: text.to_string(),
+                        form_data: Vec::new(),
                     })
                 });
 

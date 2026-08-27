@@ -174,12 +174,33 @@ pub struct RequestFile {
     pub post_response_script: Option<String>,
 }
 
+/// Lightweight form-data key/value used by the CLI for cross-process YAML I/O.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FormDataKV {
+    #[serde(default)]
+    pub id: String,
+    pub key: String,
+    pub value: String,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value_type: Option<String>,
+}
+
+fn default_true() -> bool {
+    true
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RequestBodyFile {
     #[serde(rename = "type")]
     pub body_type: String,
     #[serde(default)]
     pub content: String,
+    /// Form-data fields (used when body_type is "form-data").
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub form_data: Vec<FormDataKV>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

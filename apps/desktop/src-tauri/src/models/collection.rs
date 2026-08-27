@@ -2,7 +2,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use super::auth::AuthConfig;
-use super::request::HttpMethod;
+use super::request::{HttpMethod, KeyValuePair};
+use super::response::ResponseData;
 
 /// On-disk collection config (.apiark/apiark.yaml)
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -75,15 +76,24 @@ pub struct RequestFile {
     pub post_response_script: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cookies: Option<HashMap<String, String>>,
+    /// Last known response, persisted so it can be restored after reopening the tab.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub response: Option<ResponseData>,
 }
 
 /// Body stored in YAML files
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RequestBodyFile {
     #[serde(rename = "type")]
     pub body_type: String,
     #[serde(default)]
     pub content: String,
+    /// Form-data fields (used when body_type is "form-data").
+    /// Optional to keep backward compatibility with YAML files
+    /// written before this field was added.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub form_data: Vec<KeyValuePair>,
 }
 
 /// Optional folder config (_folder.yaml)

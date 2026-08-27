@@ -109,6 +109,7 @@ fn write_items(items: &[ImportItem], parent_dir: &Path) -> Result<(), String> {
                     pre_request_script: pre_request_script.clone(),
                     post_response_script: post_response_script.clone(),
                     cookies: None,
+                    response: None,
                 };
 
                 let yaml = serde_yaml::to_string(&request_file)
@@ -144,6 +145,7 @@ fn convert_body(body: &Option<ImportBody>) -> Option<RequestBodyFile> {
     body.as_ref().map(|b| RequestBodyFile {
         body_type: b.body_type.clone(),
         content: b.content.clone(),
+        form_data: Vec::new(),
     })
 }
 

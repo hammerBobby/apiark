@@ -298,7 +298,18 @@ function requestFileToTab(
     ? {
         type: file.body.type as RequestBody["type"],
         content: file.body.content || "",
-        formData: [],
+        // Restore form-data fields from disk so multipart requests keep their
+        // parameters after a save/reopen cycle. Older YAML files that pre-date
+        // this field will simply get an empty array here.
+        formData: Array.isArray(file.body.formData)
+          ? file.body.formData.map((kv) => ({
+              id: kv.id || kvId(),
+              key: kv.key,
+              value: kv.value,
+              enabled: kv.enabled ?? true,
+              valueType: kv.valueType,
+            }))
+          : [],
       }
     : { type: "none", content: "", formData: [] };
 
@@ -386,7 +397,12 @@ function requestFileToTab(
     postResponseScript: file.postResponseScript ?? null,
     testScript: file.tests ?? null,
     assertions: assertionsStr,
-    response: null,
+    // Restore the persisted response if present so reopening a tab still shows
+    // the last result. tempPath is dropped since it references a temp file that
+    // may no longer exist — the body string is stored inline in the YAML.
+    response: file.response
+      ? { ...file.response, tempPath: undefined }
+      : null,
     error: null,
     loading: false,
     testResults: [],
@@ -414,7 +430,7 @@ function tabToRequestFile(tab: Tab): RequestFile {
 
   // For GraphQL tabs, serialize the query/variables into a JSON body
   // so it's detected as GraphQL when loaded back (requestFileToTab checks for body.content with "query")
-  let body: { type: string; content: string } | undefined;
+  let body: { type: string; content: string; formData?: KeyValuePair[] } | undefined;
   if (tab.protocol === "graphql" && tab.graphql) {
     const gqlBody: Record<string, unknown> = { query: tab.graphql.query };
     try {
@@ -422,13 +438,34 @@ function tabToRequestFile(tab: Tab): RequestFile {
       if (Object.keys(vars).length > 0) gqlBody.variables = vars;
     } catch { /* ignore invalid JSON */ }
     if (tab.graphql.operationName) gqlBody.operationName = tab.graphql.operationName;
-    body = { type: "json", content: JSON.stringify(gqlBody, null, 2) };
+    body = { type: "json", content: JSON.stringify(gqlBody, null, 2), formData: [] };
     // Ensure Content-Type header is set
     if (!headers["Content-Type"]) {
       headers["Content-Type"] = "application/json";
     }
   } else if (tab.body.type !== "none") {
-    body = { type: tab.body.type, content: tab.body.content };
+    // Preserve form-data fields if present (only meaningful when type === "form-data",
+    // but harmless to include for other body types since Rust will ignore them).
+    const hasFormData = tab.body.formData.some(
+      (kv) => kv.key.trim() || kv.value.trim() || kv.valueType === "file",
+    );
+    body = {
+      type: tab.body.type,
+      content: tab.body.content,
+      formData: hasFormData ? tab.body.formData : [],
+    };
+  }
+
+  // Persist the last response so it can be restored after reopening the tab.
+  // A response is considered "present" once a request has been sent (status set).
+  let response: RequestFile["response"];
+  if (tab.response && tab.response.status > 0) {
+    response = {
+      ...tab.response,
+      // tempPath points to a temp file that may be cleaned up later; the body
+      // string itself is stored in the YAML so drop the stale path on save.
+      tempPath: undefined,
+    };
   }
 
   return {
@@ -443,6 +480,7 @@ function tabToRequestFile(tab: Tab): RequestFile {
     preRequestScript: tab.preRequestScript || undefined,
     postResponseScript: tab.postResponseScript || undefined,
     tests: tab.testScript || undefined,
+    response,
   };
 }
 

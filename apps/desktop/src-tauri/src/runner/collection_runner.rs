@@ -58,10 +58,31 @@ fn request_file_to_params(file: &RequestFile) -> SendRequestParams {
             "binary" => BodyType::Binary,
             _ => BodyType::None,
         };
+        // Restore form_data from disk so multipart requests can actually send their fields.
+        // Keys are also stored in `params` for path variables; filter those out here.
+        let mut form_data: Vec<KeyValuePair> = b
+            .form_data
+            .iter()
+            .map(|kv| KeyValuePair {
+                id: kv.id.clone(),
+                key: kv.key.clone(),
+                value: kv.value.clone(),
+                enabled: kv.enabled,
+                value_type: kv.value_type.clone(),
+            })
+            .collect();
+        // Stable IDs if missing (legacy YAML without ids)
+        let mut counter = 0u64;
+        for kv in form_data.iter_mut() {
+            if kv.id.is_empty() {
+                kv.id = format!("fd_{counter}");
+                counter += 1;
+            }
+        }
         RequestBody {
             body_type,
             content: b.content.clone(),
-            form_data: Vec::new(),
+            form_data,
         }
     });
 
@@ -119,6 +140,21 @@ fn interpolate_params(
     if let Some(ref body) = params.body {
         let mut new_body = body.clone();
         new_body.content = interpolation::interpolate(&body.content, vars);
+        // Form-data fields need variable interpolation too (keys + values).
+        new_body.form_data = body
+            .form_data
+            .iter()
+            .map(|fd| {
+                let mut kv = KeyValuePair::new(
+                    interpolation::interpolate(&fd.key, vars),
+                    interpolation::interpolate(&fd.value, vars),
+                    fd.enabled,
+                );
+                kv.id = fd.id.clone();
+                kv.value_type = fd.value_type.clone();
+                kv
+            })
+            .collect();
         interpolated.body = Some(new_body);
     }
 

@@ -249,13 +249,14 @@ export interface RequestFile {
   description?: string;
   headers: Record<string, string>;
   auth?: AuthConfig;
-  body?: { type: string; content: string };
+  body?: { type: string; content: string; formData?: KeyValuePair[] };
   params?: Record<string, string>;
   preRequestScript?: string;
   postResponseScript?: string;
   tests?: string;
   assert?: unknown;
   cookies?: Record<string, string>;
+  response?: ResponseData;
 }
 
 // ── Environment ──
