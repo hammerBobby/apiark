@@ -22,8 +22,11 @@ import {
   Cookie,
   X,
   FolderX,
+  Copy,
 } from "lucide-react";
 import { getCollectionDefaults, updateCollectionDefaults } from "@/lib/tauri-api";
+import { useToastStore } from "@/stores/toast-store";
+import { buildCurlFromFile, copyToClipboard } from "@/lib/curl-export";
 import * as Dialog from "@radix-ui/react-dialog";
 import { CookieJarDialog } from "@/components/collection/cookie-jar-dialog";
 import { exportCollectionToFile } from "@/lib/export-collection";
@@ -468,6 +471,23 @@ function TreeNodeRow({
     setDeleteConfirm(true);
   };
 
+  const handleCopyCurl = async () => {
+    closeContextMenu();
+    try {
+      const curl = await buildCurlFromFile(node.path, collectionPath);
+      const ok = await copyToClipboard(curl);
+      if (ok) {
+        useToastStore.getState().showSuccess(t("common.copyAsCurlSuccess", "Copied as cURL"));
+      } else {
+        useToastStore.getState().showError(t("common.copyFailed", "Failed to copy"));
+      }
+    } catch (err) {
+      useToastStore.getState().showError(
+        t("common.copyAsCurlFailed", `Failed to generate cURL: ${err}`),
+      );
+    }
+  };
+
   const confirmDelete = async () => {
     try {
       await deleteItem(node.path, collectionName, collectionPath);
@@ -570,6 +590,16 @@ function TreeNodeRow({
             <button
               onClick={(e) => {
                 e.stopPropagation();
+                handleCopyCurl();
+              }}
+              className="rounded p-0.5 text-[var(--color-text-muted)] hover:bg-[var(--color-border)] hover:text-[var(--color-text-primary)]"
+              title={t("common.copyAsCurl")}
+            >
+              <Copy className="h-3 w-3" />
+            </button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
                 handleDelete();
               }}
               className="rounded p-0.5 text-[var(--color-text-muted)] hover:bg-red-500/20 hover:text-red-400"
@@ -587,6 +617,7 @@ function TreeNodeRow({
             y={contextMenu.y}
             onClose={closeContextMenu}
             items={[
+              { label: t("common.copyAsCurl"), icon: Copy, onClick: handleCopyCurl },
               { label: t("common.rename"), icon: Pencil, onClick: handleRename },
               { label: t("common.delete"), icon: Trash2, onClick: handleDelete, danger: true },
             ]}

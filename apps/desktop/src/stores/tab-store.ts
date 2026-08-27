@@ -258,10 +258,10 @@ function takeSnapshot(tab: Tab): TabSnapshot {
   };
 }
 
-function requestFileToTab(
+export function requestFileToTab(
   file: RequestFile,
   filePath: string,
-  collectionPath: string,
+  collectionPath: string | null,
 ): Tab {
   // Convert Record<string, string> headers to KeyValuePair[]
   const headers: KeyValuePair[] = Object.entries(file.headers || {}).map(

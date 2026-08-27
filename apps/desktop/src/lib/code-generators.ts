@@ -19,7 +19,8 @@ function cleanGraphQLBody(body: string): string {
 }
 
 export function generateCurl(tab: Tab): string {
-  const parts = [`curl -X ${tab.method}`];
+  const parts: string[] = [];
+  parts.push(`curl -X ${tab.method}`);
   // URL already contains query params (synced from Params tab)
   parts.push(`'${tab.url}'`);
 
@@ -37,10 +38,47 @@ export function generateCurl(tab: Tab): string {
     parts.push(`-H '${tab.auth.key}: ${tab.auth.value}'`);
   }
 
-  if (tab.body.type !== "none" && tab.body.content.trim()) {
-    const content = tab.body.type === "json" ? cleanGraphQLBody(tab.body.content) : tab.body.content;
+  const body = tab.body;
+  // Disable curl's automatic globbing so URLs with `{}` or `[]` are passed through as-is.
+  parts.push(`-g`);
+
+  if (body.type === "form-data") {
+    // multipart/form-data: emit one -F per field. File fields become @path entries.
+    for (const fd of body.formData) {
+      if (!fd.enabled || !fd.key.trim()) continue;
+      const isFile = fd.valueType === "file";
+      const escapedValue = fd.value
+        .replace(/\\/g, "\\\\")
+        .replace(/'/g, "'\\''");
+      parts.push(
+        isFile
+          ? `-F '${fd.key}=@${escapedValue}'`
+          : `-F '${fd.key}=${escapedValue}'`,
+      );
+    }
+  } else if (body.type === "urlencoded") {
+    for (const kv of body.formData) {
+      if (!kv.enabled || !kv.key.trim()) continue;
+      const encoded = encodeURIComponent(kv.key) + "=" + encodeURIComponent(kv.value);
+      parts.push(`--data-urlencode '${encoded.replace(/'/g, "'\\''")}'`);
+    }
+  } else if (body.type === "binary") {
+    if (body.content.trim()) {
+      const escaped = body.content.replace(/'/g, "'\\''");
+      parts.push(`--data-binary '@${escaped}'`);
+    }
+  } else if (body.type !== "none" && body.content.trim()) {
+    const content = body.type === "json" ? cleanGraphQLBody(body.content) : body.content;
     const escaped = content.replace(/'/g, "'\\''");
     parts.push(`-d '${escaped}'`);
+    if (body.type === "json") {
+      parts.push(`-H 'Content-Type: application/json'`);
+    } else if (body.type === "xml") {
+      parts.push(`-H 'Content-Type: application/xml'`);
+    } else if (body.type === "raw" && tab.headers.every((h) => h.key.toLowerCase() !== "content-type")) {
+      // only add a default content-type when the user hasn't already set one
+      parts.push(`-H 'Content-Type: text/plain'`);
+    }
   }
 
   return parts.join(" \\\n  ");

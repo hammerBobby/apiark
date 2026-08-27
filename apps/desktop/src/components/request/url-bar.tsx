@@ -4,12 +4,14 @@ import { useTabStore, useActiveTab } from "@/stores/tab-store";
 import { useEnvironmentStore } from "@/stores/environment-store";
 import { useToastStore } from "@/stores/toast-store";
 import type { HttpMethod, EnvironmentData } from "@apiark/types";
-import { Loader2, Send, AlertCircle, Check } from "lucide-react";
+import { Loader2, Send, AlertCircle, Check, MoreVertical, Copy } from "lucide-react";
 import { HintTooltip } from "@/components/ui/hint-tooltip";
 import * as Popover from "@radix-ui/react-popover";
 import { saveEnvironment, parseCurlCommand } from "@/lib/tauri-api";
 import { looksLikeCurl } from "@/lib/curl-detector";
 import { applyParsedCurlToCurrentTab } from "@/lib/apply-parsed-curl";
+import { generateCurl } from "@/lib/code-generators";
+import { copyToClipboard } from "@/lib/curl-export";
 
 const METHODS: HttpMethod[] = [
   "GET",
@@ -300,6 +302,21 @@ export const UrlBar = forwardRef<HTMLInputElement, UrlBarProps>(function UrlBar(
     else if (tab.error) flashSendButton(false);
   }, [tab?.response, tab?.error, tab?.loading, flashSendButton]);
 
+  const handleCopyCurl = async () => {
+    if (!tab) return;
+    try {
+      const curl = generateCurl(tab);
+      const ok = await copyToClipboard(curl);
+      if (ok) {
+        showSuccess(t("common.copyAsCurlSuccess", "Copied as cURL"));
+      } else {
+        showError(t("common.copyFailed", "Failed to copy"));
+      }
+    } catch (err) {
+      showError(t("common.copyAsCurlFailed", `Failed to generate cURL: ${err}`));
+    }
+  };
+
   if (!tab) return null;
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -428,7 +445,7 @@ export const UrlBar = forwardRef<HTMLInputElement, UrlBarProps>(function UrlBar(
 
       {/* Send button (or custom override for WS/SSE) */}
       {sendButton ?? (
-        <div className="relative">
+        <div className="relative flex items-center gap-1">
           <button
             ref={sendBtnRef}
             data-tour="send-btn"
@@ -443,6 +460,36 @@ export const UrlBar = forwardRef<HTMLInputElement, UrlBarProps>(function UrlBar(
             )}
             {t("request.send")}
           </button>
+          <Popover.Root>
+            <Popover.Trigger asChild>
+              <button
+                type="button"
+                aria-label={t("common.moreActions", "More actions")}
+                data-testid="send-more-btn"
+                className="flex items-center justify-center rounded-lg bg-[var(--color-accent)] px-2 py-2 text-white transition-all hover:bg-[var(--color-accent-hover)] active:scale-[0.98]"
+              >
+                <MoreVertical className="h-4 w-4" />
+              </button>
+            </Popover.Trigger>
+            <Popover.Portal>
+              <Popover.Content
+                align="end"
+                sideOffset={6}
+                className="z-50 min-w-[180px] overflow-hidden rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] py-1 text-sm shadow-lg animate-in fade-in"
+              >
+                <Popover.Close asChild>
+                  <button
+                    type="button"
+                    onClick={handleCopyCurl}
+                    className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[var(--color-text-secondary)] hover:bg-[var(--color-elevated)] hover:text-[var(--color-text-primary)]"
+                  >
+                    <Copy className="h-3.5 w-3.5" />
+                    {t("common.copyAsCurl", "Copy as cURL")}
+                  </button>
+                </Popover.Close>
+              </Popover.Content>
+            </Popover.Portal>
+          </Popover.Root>
           <HintTooltip hintId="send-shortcut" message="Tip: Press Ctrl+Enter to send requests quickly" />
         </div>
       )}
