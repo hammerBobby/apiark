@@ -1,3 +1,4 @@
+import type { KeyboardEvent } from "react";
 import type { KeyValuePair } from "@apiark/types";
 import { Plus, Trash2 } from "lucide-react";
 
@@ -36,6 +37,39 @@ export function KeyValueEditor({
     onChange(pairs.filter((_, i) => i !== index));
   };
 
+  /**
+   * Pressing Tab on a value input should move to the next row's key input,
+   * adding a new empty row when already on the last row — instead of jumping
+   * to the row's delete button.
+   */
+  const focusKeyById = (rowId: string) => {
+    // Wait for React to flush the (possibly newly added) row before focusing.
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const el = document.querySelector<HTMLInputElement>(
+          `input[data-kv-id="${CSS.escape(rowId)}"]`,
+        );
+        el?.focus();
+        el?.select();
+      });
+    });
+  };
+
+  const handleValueTab = (index: number, e: KeyboardEvent) => {
+    if (e.key !== "Tab") return;
+    e.preventDefault();
+    let targetId: string;
+    if (index === pairs.length - 1) {
+      // On the last row: append a new row and focus its key input.
+      targetId = kvId();
+      onChange([...pairs, { id: targetId, key: "", value: "", enabled: true }]);
+    } else {
+      // Otherwise: move to the next row's key input.
+      targetId = pairs[index + 1].id;
+    }
+    focusKeyById(targetId);
+  };
+
   return (
     <div className="space-y-1">
       {/* Header row */}
@@ -60,6 +94,7 @@ export function KeyValueEditor({
           />
           <input
             type="text"
+            data-kv-id={pair.id}
             value={pair.key}
             onChange={(e) => update(index, "key", e.target.value)}
             placeholder={keyPlaceholder}
@@ -67,8 +102,10 @@ export function KeyValueEditor({
           />
           <input
             type="text"
+            data-kv-id={pair.id}
             value={pair.value}
             onChange={(e) => update(index, "value", e.target.value)}
+            onKeyDown={(e) => handleValueTab(index, e)}
             placeholder={valuePlaceholder}
             className="rounded bg-[var(--color-elevated)] px-2 py-1 text-sm text-[var(--color-text-primary)] placeholder-[var(--color-text-dimmed)] outline-none focus:ring-1 focus:ring-blue-500"
           />
