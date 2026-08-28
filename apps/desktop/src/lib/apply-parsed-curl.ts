@@ -50,11 +50,22 @@ export function applyParsedCurlToCurrentTab(parsed: ParsedCurlRequest): ApplyCur
     setHeaders([...headers, { id: kvId(), key: "", value: "", enabled: true }]);
   }
 
-  if (parsed.body) {
+  const formData = (parsed.formData ?? []).map((f) => ({
+    id: kvId(),
+    key: f.key,
+    value: f.value,
+    enabled: true,
+    valueType: f.valueType === "file" ? ("file" as const) : ("text" as const),
+  }));
+
+  if (parsed.body || formData.length > 0) {
+    const type: BodyType = formData.length > 0
+      ? "form-data"
+      : ((parsed.bodyType as BodyType) ?? "raw");
     const body: RequestBody = {
-      type: ((parsed.bodyType as BodyType) ?? "raw") as BodyType,
-      content: parsed.body,
-      formData: [],
+      type,
+      content: parsed.body ?? "",
+      formData,
     };
     setBody(body);
   }

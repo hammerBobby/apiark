@@ -20,28 +20,39 @@ function cleanGraphQLBody(body: string): string {
 
 export function generateCurl(tab: Tab): string {
   const parts: string[] = [];
-  parts.push(`curl -X ${tab.method}`);
+  // Chrome DevTools "Copy as cURL" style: `curl --url '<URL>'`
   // URL already contains query params (synced from Params tab)
-  parts.push(`'${tab.url}'`);
+  parts.push(`curl --url '${tab.url}'`);
 
+  const headers: string[] = [];
   for (const h of tab.headers) {
     if (h.key.trim() && h.enabled) {
-      parts.push(`-H '${h.key}: ${h.value}'`);
+      // Chrome emits `-H 'Key: Value'`; empty-value headers become `-H 'Key;'`
+      const key = h.key.trim();
+      headers.push(
+        h.value.trim() === "" ? `-H '${key};'` : `-H '${key}: ${h.value}'`,
+      );
     }
   }
 
   if (tab.auth.type === "bearer") {
-    parts.push(`-H 'Authorization: Bearer ${tab.auth.token}'`);
-  } else if (tab.auth.type === "basic") {
-    parts.push(`-u '${tab.auth.username}:${tab.auth.password}'`);
+    headers.push(`-H 'Authorization: Bearer ${tab.auth.token}'`);
   } else if (tab.auth.type === "api-key" && tab.auth.addTo === "header") {
-    parts.push(`-H '${tab.auth.key}: ${tab.auth.value}'`);
+    headers.push(`-H '${tab.auth.key}: ${tab.auth.value}'`);
+  }
+
+  // Method: GET/HEAD are the default, so like Chrome we only emit --request for others.
+  if (tab.method !== "GET" && tab.method !== "HEAD") {
+    parts.push(`--request ${tab.method}`);
+  }
+
+  for (const h of headers) parts.push(h);
+
+  if (tab.auth.type === "basic") {
+    parts.push(`-u '${tab.auth.username}:${tab.auth.password}'`);
   }
 
   const body = tab.body;
-  // Disable curl's automatic globbing so URLs with `{}` or `[]` are passed through as-is.
-  parts.push(`-g`);
-
   if (body.type === "form-data") {
     // multipart/form-data: emit one -F per field. File fields become @path entries.
     for (const fd of body.formData) {
@@ -70,7 +81,8 @@ export function generateCurl(tab: Tab): string {
   } else if (body.type !== "none" && body.content.trim()) {
     const content = body.type === "json" ? cleanGraphQLBody(body.content) : body.content;
     const escaped = content.replace(/'/g, "'\\''");
-    parts.push(`-d '${escaped}'`);
+    // Chrome uses --data-raw for arbitrary text bodies.
+    parts.push(`--data-raw '${escaped}'`);
     if (body.type === "json") {
       parts.push(`-H 'Content-Type: application/json'`);
     } else if (body.type === "xml") {

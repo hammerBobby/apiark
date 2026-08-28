@@ -292,6 +292,7 @@ export interface ParsedCurlRequest {
   headers: Record<string, string>;
   body: string | null;
   bodyType: string | null;
+  formData: { key: string; value: string; valueType?: "text" | "file" }[];
   authBasic: [string, string] | null;
   verifySsl: boolean;
   followRedirects: boolean;
