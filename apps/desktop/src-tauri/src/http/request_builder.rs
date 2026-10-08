@@ -146,7 +146,10 @@ pub fn build_request(
     builder = apply_auth(builder, &params.auth, params);
 
     // Apply body
-    builder = apply_body(builder, &params.body)?;
+    let has_user_content_type = params.headers.iter().any(|h| {
+        h.enabled && !h.key.is_empty() && h.key.trim().eq_ignore_ascii_case("content-type")
+    });
+    builder = apply_body(builder, &params.body, has_user_content_type)?;
 
     // Apply cookie overrides
     if let Some(cookies) = &params.cookies {
@@ -287,22 +290,36 @@ fn apply_auth(
 fn apply_body(
     builder: RequestBuilder,
     body: &Option<RequestBody>,
+    has_user_content_type: bool,
 ) -> Result<RequestBuilder, HttpEngineError> {
     let body = match body {
         Some(b) => b,
         None => return Ok(builder),
     };
 
+    // If the user already set a Content-Type header, reqwest's `header()` would
+    // append a second value (e.g. "application/json,application/json") which
+    // servers like Spring reject. In that case keep the user's header as-is.
+
     match body.body_type {
-        BodyType::Json => Ok(builder
-            .header("Content-Type", "application/json")
-            .body(body.content.clone())),
-        BodyType::Xml => Ok(builder
-            .header("Content-Type", "application/xml")
-            .body(body.content.clone())),
-        BodyType::Raw => Ok(builder
-            .header("Content-Type", "text/plain")
-            .body(body.content.clone())),
+        BodyType::Json => Ok(if has_user_content_type {
+            builder
+        } else {
+            builder.header("Content-Type", "application/json")
+        }
+        .body(body.content.clone())),
+        BodyType::Xml => Ok(if has_user_content_type {
+            builder
+        } else {
+            builder.header("Content-Type", "application/xml")
+        }
+        .body(body.content.clone())),
+        BodyType::Raw => Ok(if has_user_content_type {
+            builder
+        } else {
+            builder.header("Content-Type", "text/plain")
+        }
+        .body(body.content.clone())),
         BodyType::Urlencoded => {
             let pairs: Vec<(String, String)> = body
                 .form_data
@@ -334,9 +351,12 @@ fn apply_body(
             }
             Ok(builder.multipart(form))
         }
-        BodyType::Binary => Ok(builder
-            .header("Content-Type", "application/octet-stream")
-            .body(body.content.clone().into_bytes())),
+        BodyType::Binary => Ok(if has_user_content_type {
+            builder
+        } else {
+            builder.header("Content-Type", "application/octet-stream")
+        }
+        .body(body.content.clone().into_bytes())),
         BodyType::None => Ok(builder),
     }
 }
