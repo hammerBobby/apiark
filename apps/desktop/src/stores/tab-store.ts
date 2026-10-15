@@ -138,6 +138,20 @@ function buildUrlWithParams(baseUrl: string, params: KeyValuePair[]): string {
 }
 
 /**
+ * Default a scheme-less URL to http:// — same behaviour as cURL itself, so a
+ * pasted `example.com/api` or `localhost:3000/health` still sends.
+ * URLs that already carry a scheme (`https://`, `ws://`…) and unresolved
+ * variables (`{{baseUrl}}/api`) are returned untouched.
+ */
+function ensureUrlScheme(url: string): string {
+  const trimmed = url.trim();
+  if (!trimmed || trimmed.startsWith("{{")) return trimmed;
+  if (trimmed.startsWith("//")) return `http:${trimmed}`;
+  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(trimmed)) return trimmed;
+  return `http://${trimmed}`;
+}
+
+/**
  * Tracks file paths that were recently saved by us (save/autoSave).
  * The file watcher checks this set to avoid reloading tabs that we just wrote.
  */
@@ -786,11 +800,20 @@ export const useTabStore = create<TabState>((set, get) => ({
     }
 
     // Resolve path variables (:paramName → value) in the URL before sending
-    let resolvedUrl = tab.url.trim();
+    let resolvedUrl = ensureUrlScheme(tab.url.trim());
     for (const [key, value] of Object.entries(tab.pathVariables)) {
       if (value) {
         resolvedUrl = resolvedUrl.replace(new RegExp(`:${key}\\b`, "g"), encodeURIComponent(value));
       }
+    }
+
+    // Show the normalized URL (e.g. added http://) back in the URL bar.
+    if (resolvedUrl !== tab.url) {
+      set({
+        tabs: get().tabs.map((t) =>
+          t.id === activeTabId ? { ...t, url: resolvedUrl } : t,
+        ),
+      });
     }
 
     const requestParams = {

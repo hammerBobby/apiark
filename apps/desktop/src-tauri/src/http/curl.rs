@@ -33,7 +33,7 @@ pub fn parse_curl(input: &str) -> Result<ParsedCurlRequest, String> {
     let mut method = None;
     let mut url = None;
     let mut headers: HashMap<String, String> = HashMap::new();
-    let mut data: Option<String> = None;
+    let mut data_parts: Vec<String> = Vec::new();
     let mut form_data: Vec<FormDataField> = Vec::new();
     let mut auth_basic: Option<(String, String)> = None;
     let mut verify_ssl = true;
@@ -81,9 +81,12 @@ pub fn parse_curl(input: &str) -> Result<ParsedCurlRequest, String> {
                     }
                 }
             }
-            "-d" | "--data" | "--data-raw" | "--data-binary" => {
+            "-d" | "--data" | "--data-raw" | "--data-binary" | "--data-ascii" => {
                 i += 1;
-                data = tokens.get(i).cloned();
+                // cURL concatenates repeated `-d` fragments with '&'.
+                if let Some(part) = tokens.get(i) {
+                    data_parts.push(part.clone());
+                }
             }
             "-F" | "--form" | "--form-string" => {
                 i += 1;
@@ -123,7 +126,14 @@ pub fn parse_curl(input: &str) -> Result<ParsedCurlRequest, String> {
         i += 1;
     }
 
-    let url = url.ok_or("No URL found in cURL command")?;
+    let raw_url = url.ok_or("No URL found in cURL command")?;
+    let url = normalize_url(&raw_url);
+
+    let data = if data_parts.is_empty() {
+        None
+    } else {
+        Some(data_parts.join("&"))
+    };
 
     // Infer method from data presence
     let method = method.unwrap_or_else(|| {
@@ -161,6 +171,15 @@ pub fn parse_curl(input: &str) -> Result<ParsedCurlRequest, String> {
     } else {
         body_type
     };
+
+    // An urlencoded body (`-d 'a=1&b=2'`) must be surfaced as a key/value
+    // table: the request is built from `form_data`, so leaving it empty would
+    // send nothing at all.
+    if form_data.is_empty() {
+        if let (Some("urlencoded"), Some(body)) = (body_type.as_deref(), data.as_deref()) {
+            parse_urlencoded(body, &mut form_data);
+        }
+    }
 
     Ok(ParsedCurlRequest {
         method: method.to_uppercase(),
@@ -211,6 +230,98 @@ fn parse_form_field(field: &str, out: &mut Vec<FormDataField>) {
             Some("text".to_string())
         },
     });
+}
+
+/// Whether `s` already carries a URL scheme such as `http://` or `ws://`.
+fn has_scheme(s: &str) -> bool {
+    match s.find("://") {
+        Some(0) => false,
+        Some(idx) => {
+            let scheme = &s[..idx];
+            scheme.chars().next().is_some_and(|c| c.is_ascii_alphabetic())
+                && scheme
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'))
+        }
+        None => false,
+    }
+}
+
+/// Prefix a scheme-less URL with `http://`.
+///
+/// cURL itself defaults to HTTP when the scheme is omitted (`curl example.com/x`
+/// means `http://example.com/x`), and browser/WeChat copies sometimes leave it
+/// out. Protocol-relative URLs (`//host/x`) only need the scheme, while
+/// anything already carrying a scheme is left untouched.
+fn normalize_url(raw: &str) -> String {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() || has_scheme(trimmed) {
+        return trimmed.to_string();
+    }
+    if trimmed.starts_with("//") {
+        return format!("http:{trimmed}");
+    }
+    format!("http://{trimmed}")
+}
+
+/// Split an `application/x-www-form-urlencoded` body into key/value fields.
+fn parse_urlencoded(body: &str, out: &mut Vec<FormDataField>) {
+    for pair in body.split('&') {
+        if pair.is_empty() {
+            continue;
+        }
+        let (key, value) = match pair.split_once('=') {
+            Some((k, v)) => (k, v),
+            None => (pair, ""),
+        };
+        let key = form_decode(key);
+        if key.is_empty() {
+            continue;
+        }
+        out.push(FormDataField {
+            key,
+            value: form_decode(value),
+            value_type: Some("text".to_string()),
+        });
+    }
+}
+
+/// Percent-decode a form value (also maps `+` back to a space).
+fn form_decode(input: &str) -> String {
+    let bytes = input.as_bytes();
+    let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'%' if i + 2 < bytes.len() => {
+                if let (Some(hi), Some(lo)) = (hex_val(bytes[i + 1]), hex_val(bytes[i + 2])) {
+                    out.push(hi * 16 + lo);
+                    i += 3;
+                    continue;
+                }
+                out.push(bytes[i]);
+                i += 1;
+            }
+            b'+' => {
+                out.push(b' ');
+                i += 1;
+            }
+            b => {
+                out.push(b);
+                i += 1;
+            }
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+fn hex_val(ch: u8) -> Option<u8> {
+    match ch {
+        b'0'..=b'9' => Some(ch - b'0'),
+        b'a'..=b'f' => Some(ch - b'a' + 10),
+        b'A'..=b'F' => Some(ch - b'A' + 10),
+        _ => None,
+    }
 }
 
 /// Export request parameters to a cURL command string.
@@ -435,6 +546,91 @@ mod tests {
         assert_eq!(result.form_data[0].value, "/tmp/photo.png");
         assert_eq!(result.form_data[0].value_type.as_deref(), Some("file"));
         println!("Form file parsing: value_type=file");
+    }
+
+    #[test]
+    fn test_miniprogram_urlencoded_body() {
+        let curl = r#"curl 'https://cloud-lyra-jmssjhbyy.mediinfo.cn/mediinfo-merc-authserver-java/connect/token' \
+  -H 'authority: cloud-lyra-jmssjhbyy.mediinfo.cn' \
+  -H 'accept: */*' \
+  -H 'accept-language: zh-CN' \
+  -H 'content-type: application/x-www-form-urlencoded' \
+  -H 'sec-ch-ua: "Not.A/Brand";v="99", "Chromium";v="136"' \
+  -H 'sec-ch-ua-mobile: ?0' \
+  -H 'user-agent: Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1 wechatdevtools/2.02.2608080 MicroMessenger/8.0.5 Language/zh_CN webview/ hash/722597064 sid/s0 winId/s0 token/e78be9ec0533c21ca9113e8312b41631' \
+  --data-raw 'client_id=mercdiandianjy-xcx&client_secret=49C1A7E1-0C79-4A89-A3D6-A37998FB86B0&grant_type=miniprogram&idp=weixinmp&code=0a1DZP000Gs4gX1L5O200n8qnp3DZP0Y&scope=openid&jiGouID=1223080041428113X1' \
+  --compressed"#;
+        let result = parse_curl(curl).unwrap();
+        assert_eq!(
+            result.url,
+            "https://cloud-lyra-jmssjhbyy.mediinfo.cn/mediinfo-merc-authserver-java/connect/token"
+        );
+        assert_eq!(result.method, "POST");
+        assert_eq!(result.body_type.as_deref(), Some("urlencoded"));
+        // The whole --data-raw string is still available verbatim…
+        assert!(result
+            .body
+            .as_deref()
+            .unwrap()
+            .starts_with("client_id=mercdiandianjy-xcx"));
+        // …and the pairs are exposed as a table so the request can be sent.
+        assert_eq!(result.form_data.len(), 7);
+        assert_eq!(result.form_data[0].key, "client_id");
+        assert_eq!(result.form_data[0].value, "mercdiandianjy-xcx");
+        assert_eq!(result.form_data[1].key, "client_secret");
+        assert_eq!(
+            result.form_data[1].value,
+            "49C1A7E1-0C79-4A89-A3D6-A37998FB86B0"
+        );
+        assert_eq!(result.form_data[6].key, "jiGouID");
+        assert_eq!(result.form_data[6].value, "1223080041428113X1");
+        // Headers with double quotes / semicolons inside must survive intact.
+        assert_eq!(
+            result.headers.get("sec-ch-ua").map(String::as_str),
+            Some("\"Not.A/Brand\";v=\"99\", \"Chromium\";v=\"136\"")
+        );
+        assert_eq!(result.headers.get("sec-ch-ua-mobile").map(String::as_str), Some("?0"));
+    }
+
+    #[test]
+    fn test_urlencoded_values_are_decoded() {
+        let curl = "curl -X POST https://example.com/token \
+            -H 'Content-Type: application/x-www-form-urlencoded' \
+            --data-raw 'name=John+Doe&note=hello%20world%26more&empty='";
+        let result = parse_curl(curl).unwrap();
+        assert_eq!(result.form_data.len(), 3);
+        assert_eq!(result.form_data[0].key, "name");
+        assert_eq!(result.form_data[0].value, "John Doe");
+        assert_eq!(result.form_data[1].value, "hello world&more");
+        assert_eq!(result.form_data[2].key, "empty");
+        assert_eq!(result.form_data[2].value, "");
+    }
+
+    #[test]
+    fn test_repeated_data_flags_are_merged() {
+        // cURL joins consecutive -d fragments with '&'
+        let result = parse_curl(
+            "curl -X POST https://example.com/api -d 'a=1' -d 'b=2' --data-raw 'c=3'",
+        )
+        .unwrap();
+        assert_eq!(result.body.as_deref(), Some("a=1&b=2&c=3"));
+    }
+
+    #[test]
+    fn test_url_without_scheme_gets_http() {
+        assert_eq!(normalize_url("example.com/api/users"), "http://example.com/api/users");
+        assert_eq!(normalize_url("localhost:3000/health"), "http://localhost:3000/health");
+        assert_eq!(normalize_url("//cdn.example.com/a.png"), "http://cdn.example.com/a.png");
+        // Already-schemed URLs are untouched
+        assert_eq!(normalize_url("https://api.example.com/x"), "https://api.example.com/x");
+        assert_eq!(normalize_url("wss://ws.example.com/stream"), "wss://ws.example.com/stream");
+    }
+
+    #[test]
+    fn test_parse_curl_without_scheme() {
+        let result = parse_curl("curl example.com/api -H 'Accept: */*'").unwrap();
+        assert_eq!(result.url, "http://example.com/api");
+        assert!(result.headers.contains_key("Accept"));
     }
 
     #[test]

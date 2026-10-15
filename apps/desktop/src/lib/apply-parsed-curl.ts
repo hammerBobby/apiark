@@ -59,9 +59,14 @@ export function applyParsedCurlToCurrentTab(parsed: ParsedCurlRequest): ApplyCur
   }));
 
   if (parsed.body || formData.length > 0) {
-    const type: BodyType = formData.length > 0
-      ? "form-data"
-      : ((parsed.bodyType as BodyType) ?? "raw");
+    // `parsed.bodyType` wins when present: a urlencoded body now ships both the
+    // raw string and its key/value fields, and must stay "urlencoded" so the
+    // form table renders (and the request is built from those fields).
+    const type: BodyType = parsed.bodyType
+      ? (parsed.bodyType as BodyType)
+      : formData.length > 0
+        ? "form-data"
+        : "raw";
     const body: RequestBody = {
       type,
       content: parsed.body ?? "",
