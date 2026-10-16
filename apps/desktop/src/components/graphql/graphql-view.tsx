@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useTabStore, useActiveTab } from "@/stores/tab-store";
-import { KeyValueEditor } from "@/components/request/key-value-editor";
+import { KeyValueEditor, COMMON_HEADERS } from "@/components/request/key-value-editor";
 import { ResponsePanel } from "@/components/response/response-panel";
 import { CodeEditor } from "@/components/ui/code-editor";
 import {
@@ -281,6 +281,7 @@ export function GraphQLView() {
                   onChange={setHeaders}
                   keyPlaceholder={t("request.header")}
                   valuePlaceholder={t("request.value")}
+                  keySuggestions={COMMON_HEADERS}
                 />
               </div>
             )}

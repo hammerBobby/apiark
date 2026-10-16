@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { useActiveTab } from "@/stores/tab-store";
 import { useTabStore } from "@/stores/tab-store";
 import { useSocketIo, type SioEvent } from "@/hooks/use-socketio";
-import { KeyValueEditor } from "@/components/request/key-value-editor";
+import { KeyValueEditor, COMMON_HEADERS } from "@/components/request/key-value-editor";
 import {
   Send,
   Plug,
@@ -152,6 +152,7 @@ export function SocketIoView() {
               onChange={setHeaders}
               keyPlaceholder="Header"
               valuePlaceholder="Value"
+              keySuggestions={COMMON_HEADERS}
             />
           </div>
         )}

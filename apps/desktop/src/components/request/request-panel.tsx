@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import type { KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { useTabStore, useActiveTab } from "@/stores/tab-store";
-import { KeyValueEditor } from "./key-value-editor";
+import { KeyValueEditor, COMMON_HEADERS } from "./key-value-editor";
 import type { AuthConfig, BodyType, RequestBody, KeyValuePair, OAuth2GrantType, OAuthTokenStatus } from "@apiark/types";
 import { oauthStartFlow, oauthGetTokenStatus, oauthClearToken } from "@/lib/tauri-api";
 import { HintTooltip } from "@/components/ui/hint-tooltip";
@@ -132,6 +132,7 @@ export function RequestPanel() {
             onChange={setHeaders}
             keyPlaceholder="Header"
             valuePlaceholder={t("request.value")}
+            keySuggestions={COMMON_HEADERS}
           />
         )}
 

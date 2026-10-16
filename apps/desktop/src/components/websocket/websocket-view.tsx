@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { useActiveTab } from "@/stores/tab-store";
 import { useTabStore } from "@/stores/tab-store";
 import { useWebSocket } from "@/hooks/use-websocket";
-import { KeyValueEditor } from "@/components/request/key-value-editor";
+import { KeyValueEditor, COMMON_HEADERS } from "@/components/request/key-value-editor";
 import { Send, Plug, Unplug, Trash2, ArrowUp, ArrowDown, ChevronDown, ChevronRight } from "lucide-react";
 import { Breadcrumb } from "@/components/layout/breadcrumb";
 import { UrlBar } from "@/components/request/url-bar";
@@ -108,6 +108,7 @@ export function WebSocketView() {
               onChange={setHeaders}
               keyPlaceholder="Header"
               valuePlaceholder="Value"
+              keySuggestions={COMMON_HEADERS}
             />
           </div>
         )}

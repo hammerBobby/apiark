@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { useActiveTab } from "@/stores/tab-store";
 import { useTabStore } from "@/stores/tab-store";
 import { useSSE } from "@/hooks/use-sse";
-import { KeyValueEditor } from "@/components/request/key-value-editor";
+import { KeyValueEditor, COMMON_HEADERS } from "@/components/request/key-value-editor";
 import { Plug, Unplug, Trash2, ChevronDown, ChevronRight } from "lucide-react";
 import { Breadcrumb } from "@/components/layout/breadcrumb";
 import { UrlBar } from "@/components/request/url-bar";
@@ -110,6 +110,7 @@ export function SSEView() {
               onChange={setHeaders}
               keyPlaceholder="Header"
               valuePlaceholder="Value"
+              keySuggestions={COMMON_HEADERS}
             />
           </div>
         )}
