@@ -105,7 +105,11 @@
     "requestName": "リクエスト名",
     "requestNamePlaceholder": "マイリクエスト",
     "filename": "ファイル名：",
-    "saveRequest": "リクエストを保存"
+    "saveRequest": "リクエストを保存",
+    "saveAsCase": "ケースとして保存",
+    "caseName": "ケース名",
+    "caseNamePlaceholder": "例：成功 - 200",
+    "saveAsCaseSuccess": "ケースを保存しました"
   },
   "body": {
     "json": "JSON",

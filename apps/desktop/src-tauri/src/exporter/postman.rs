@@ -60,6 +60,8 @@ fn export_nodes(nodes: &[CollectionNode]) -> Result<Vec<Value>, String> {
                     "item": sub_items
                 }));
             }
+            // Cases are internal to request files; not exported.
+            CollectionNode::Case { .. } => {}
         }
     }
 

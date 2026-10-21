@@ -105,7 +105,11 @@
     "requestName": "Nom de la Requête",
     "requestNamePlaceholder": "Ma Requête",
     "filename": "Nom du fichier :",
-    "saveRequest": "Enregistrer la Requête"
+    "saveRequest": "Enregistrer la Requête",
+    "saveAsCase": "Enregistrer comme cas",
+    "caseName": "Nom du cas",
+    "caseNamePlaceholder": "ex. Succès - 200",
+    "saveAsCaseSuccess": "Cas enregistré"
   },
   "body": {
     "json": "JSON",

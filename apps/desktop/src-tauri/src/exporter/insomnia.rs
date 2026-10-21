@@ -72,6 +72,8 @@ fn export_nodes(
                     }
                 }
             }
+            // Cases are internal to request files; not exported.
+            CollectionNode::Case { .. } => {}
         }
     }
     Ok(())

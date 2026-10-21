@@ -75,6 +75,8 @@ fn collect_operations(
             CollectionNode::Collection { children, name, .. } => {
                 collect_operations(children, paths, tags, Some(name))?;
             }
+            // Cases are internal to request files; not exported.
+            CollectionNode::Case { .. } => {}
         }
     }
     Ok(())

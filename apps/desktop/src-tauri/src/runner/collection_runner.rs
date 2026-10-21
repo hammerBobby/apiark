@@ -27,6 +27,9 @@ fn collect_request_paths(node: &CollectionNode) -> Vec<String> {
         CollectionNode::Collection { children, .. } | CollectionNode::Folder { children, .. } => {
             children.iter().flat_map(collect_request_paths).collect()
         }
+        // Cases (用例) live inside request files; collection runs execute
+        // the top-level requests only.
+        CollectionNode::Case { .. } => vec![],
     }
 }
 
@@ -542,7 +545,7 @@ pub async fn run_collection(
                 | CollectionNode::Folder { children, .. } => {
                     children.iter().find_map(|c| find_folder(c, target))
                 }
-                CollectionNode::Request { .. } => None,
+                CollectionNode::Request { .. } | CollectionNode::Case { .. } => None,
             }
         }
         match find_folder(&tree, folder_path) {

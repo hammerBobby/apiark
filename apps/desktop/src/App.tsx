@@ -49,6 +49,7 @@ const MonitorDialog = lazy(() => import("@/components/scheduler/monitor-dialog")
 const DocsPreviewDialog = lazy(() => import("@/components/docs/docs-preview-dialog").then(m => ({ default: m.DocsPreviewDialog })));
 const AiAssistantDialog = lazy(() => import("@/components/ai/ai-assistant-dialog").then(m => ({ default: m.AiAssistantDialog })));
 const SaveAsDialog = lazy(() => import("@/components/request/save-as-dialog").then(m => ({ default: m.SaveAsDialog })));
+const SaveCaseDialog = lazy(() => import("@/components/request/save-case-dialog").then(m => ({ default: m.SaveCaseDialog })));
 
 function App() {
   const { t } = useTranslation();
@@ -68,6 +69,7 @@ function App() {
   const [importOpen, setImportOpen] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
   const [saveAsOpen, setSaveAsOpen] = useState(false);
+  const [saveCaseOpen, setSaveCaseOpen] = useState(false);
   const [activeView, setActiveView] = useState<ActivityView>("collections");
   const [sidePanelVisible, setSidePanelVisible] = useState(true);
   const [zenMode, setZenMode] = useState(false);
@@ -149,6 +151,13 @@ function App() {
     const handler = () => setSaveAsOpen(true);
     window.addEventListener("apiark:open-save-as", handler);
     return () => window.removeEventListener("apiark:open-save-as", handler);
+  }, []);
+
+  // Listen for save-as-case event from TabBar
+  useEffect(() => {
+    const handler = () => setSaveCaseOpen(true);
+    window.addEventListener("apiark:open-save-case", handler);
+    return () => window.removeEventListener("apiark:open-save-case", handler);
   }, []);
 
   // Toggle side panel when clicking same activity view
@@ -401,6 +410,31 @@ function App() {
             } catch (err) {
               import("@/stores/toast-store").then(({ useToastStore }) =>
                 useToastStore.getState().showError(`Failed to save: ${String(err)}`),
+              );
+            }
+          }}
+        />
+        <SaveCaseDialog
+          open={saveCaseOpen}
+          onOpenChange={setSaveCaseOpen}
+          defaultName={activeTab?.name === "Untitled Request" ? "" : activeTab?.name ?? ""}
+          onSave={async (caseName) => {
+            try {
+              const tabStore = useTabStore.getState();
+              const tab = tabStore.tabs.find((t) => t.id === tabStore.activeTabId);
+              if (!tab || !tab.filePath || !tab.collectionPath) return;
+              const { tabToRequestFile } = await import("@/stores/tab-store");
+              const requestFile = tabToRequestFile(tab);
+              requestFile.name = caseName;
+              await useCollectionStore
+                .getState()
+                .saveCase(tab.filePath, requestFile, tab.collectionPath);
+              import("@/stores/toast-store").then(({ useToastStore }) =>
+                useToastStore.getState().showSuccess(t("request.saveAsCaseSuccess")),
+              );
+            } catch (err) {
+              import("@/stores/toast-store").then(({ useToastStore }) =>
+                useToastStore.getState().showError(`Failed to save case: ${String(err)}`),
               );
             }
           }}

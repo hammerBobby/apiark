@@ -105,7 +105,11 @@
     "requestName": "요청 이름",
     "requestNamePlaceholder": "내 요청",
     "filename": "파일 이름:",
-    "saveRequest": "요청 저장"
+    "saveRequest": "요청 저장",
+    "saveAsCase": "사례로 저장",
+    "caseName": "사례 이름",
+    "caseNamePlaceholder": "예: 성공 - 200",
+    "saveAsCaseSuccess": "사례가 저장되었습니다"
   },
   "body": {
     "json": "JSON",

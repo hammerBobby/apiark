@@ -68,6 +68,54 @@ pub async fn save_request_file(path: String, request: RequestFile) -> Result<(),
 }
 
 #[tauri::command]
+pub async fn read_request_case(path: String, case_name: String) -> Result<RequestFile, String> {
+    tracing::debug!(path = %path, case_name = %case_name, "Reading request case");
+    tokio::task::spawn_blocking(move || {
+        let file_path = Path::new(&path);
+        collection::read_request_case(file_path, &case_name)
+    })
+    .await
+    .map_err(|e| format!("Task join error: {e}"))?
+}
+
+#[tauri::command]
+pub async fn save_request_case(path: String, case: RequestFile) -> Result<(), String> {
+    tracing::debug!(path = %path, case_name = %case.name, "Saving request case");
+    tokio::task::spawn_blocking(move || {
+        let file_path = Path::new(&path);
+        collection::upsert_request_case(file_path, case)
+    })
+    .await
+    .map_err(|e| format!("Task join error: {e}"))?
+}
+
+#[tauri::command]
+pub async fn rename_request_case(
+    path: String,
+    old_name: String,
+    new_name: String,
+) -> Result<(), String> {
+    tracing::debug!(path = %path, old_name = %old_name, new_name = %new_name, "Renaming request case");
+    tokio::task::spawn_blocking(move || {
+        let file_path = Path::new(&path);
+        collection::rename_request_case(file_path, &old_name, &new_name)
+    })
+    .await
+    .map_err(|e| format!("Task join error: {e}"))?
+}
+
+#[tauri::command]
+pub async fn delete_request_case(path: String, case_name: String) -> Result<(), String> {
+    tracing::debug!(path = %path, case_name = %case_name, "Deleting request case");
+    tokio::task::spawn_blocking(move || {
+        let file_path = Path::new(&path);
+        collection::delete_request_case(file_path, &case_name)
+    })
+    .await
+    .map_err(|e| format!("Task join error: {e}"))?
+}
+
+#[tauri::command]
 pub async fn create_request(
     dir: String,
     filename: String,
@@ -92,6 +140,7 @@ pub async fn create_request(
         post_response_script: None,
         cookies: None,
         response: None,
+        cases: Vec::new(),
     };
     let path = collection::create_request_file(dir_path, &filename, &request)?;
     Ok(path.to_string_lossy().to_string())

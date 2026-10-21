@@ -136,6 +136,41 @@ export async function saveRequestFile(
   return await invoke<void>("save_request_file", { path, request });
 }
 
+// ── Request Cases (用例) ──
+
+export async function readRequestCase(
+  path: string,
+  caseName: string,
+): Promise<RequestFile> {
+  return await invoke<RequestFile>("read_request_case", { path, caseName });
+}
+
+export async function saveRequestCase(
+  path: string,
+  requestCase: RequestFile,
+): Promise<void> {
+  return await invoke<void>("save_request_case", { path, case: requestCase });
+}
+
+export async function renameRequestCase(
+  path: string,
+  oldName: string,
+  newName: string,
+): Promise<void> {
+  return await invoke<void>("rename_request_case", {
+    path,
+    oldName,
+    newName,
+  });
+}
+
+export async function deleteRequestCase(
+  path: string,
+  caseName: string,
+): Promise<void> {
+  return await invoke<void>("delete_request_case", { path, caseName });
+}
+
 export async function createRequest(
   dir: string,
   filename: string,

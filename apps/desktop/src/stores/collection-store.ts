@@ -1,11 +1,14 @@
 import { create } from "zustand";
-import type { CollectionNode, VersionStatus } from "@apiark/types";
+import type { CollectionNode, RequestFile, VersionStatus } from "@apiark/types";
 import {
   openCollection as openCollectionApi,
   createRequest as createRequestApi,
   createFolder as createFolderApi,
   deleteItem as deleteItemApi,
   renameItem as renameItemApi,
+  renameRequestCase as renameRequestCaseApi,
+  deleteRequestCase as deleteRequestCaseApi,
+  saveRequestCase as saveRequestCaseApi,
   watchCollection,
   unwatchCollection,
   restoreFromTrash,
@@ -52,6 +55,23 @@ interface CollectionState {
     newName: string,
     collectionPath: string,
   ) => Promise<string>;
+  /** Save the given snapshot as a case (用例) of the request YAML at requestPath. */
+  saveCase: (
+    requestPath: string,
+    requestCase: RequestFile,
+    collectionPath: string,
+  ) => Promise<void>;
+  renameCase: (
+    requestPath: string,
+    oldName: string,
+    newName: string,
+    collectionPath: string,
+  ) => Promise<void>;
+  deleteCase: (
+    requestPath: string,
+    caseName: string,
+    collectionPath: string,
+  ) => Promise<void>;
   undoLastAction: () => Promise<void>;
   dismissMigration: () => void;
   acceptMigration: () => Promise<void>;
@@ -316,6 +336,47 @@ export const useCollectionStore = create<CollectionState>((set, get) => ({
       collectionPath,
     });
     return newPath;
+  },
+
+  saveCase: async (requestPath, requestCase, collectionPath) => {
+    // Suppress the watcher reload for the parent file we're about to write.
+    const { markRecentlySaved } = await import("@/stores/tab-store");
+    markRecentlySaved(requestPath);
+    await saveRequestCaseApi(requestPath, requestCase);
+    await get().refreshCollection(collectionPath);
+  },
+
+  renameCase: async (requestPath, oldName, newName, collectionPath) => {
+    const { markRecentlySaved } = await import("@/stores/tab-store");
+    markRecentlySaved(requestPath);
+    await renameRequestCaseApi(requestPath, oldName, newName);
+
+    // Update any open case tab pointing at the old case name
+    const { useTabStore } = await import("@/stores/tab-store");
+    useTabStore.setState((state) => ({
+      tabs: state.tabs.map((t) =>
+        t.filePath === requestPath && t.caseName === oldName
+          ? { ...t, caseName: newName, name: newName }
+          : t,
+      ),
+    }));
+
+    await get().refreshCollection(collectionPath);
+  },
+
+  deleteCase: async (requestPath, caseName, collectionPath) => {
+    // Close any open tab for this case first
+    const { useTabStore } = await import("@/stores/tab-store");
+    const tabStore = useTabStore.getState();
+    const caseTab = tabStore.tabs.find(
+      (t) => t.filePath === requestPath && t.caseName === caseName,
+    );
+    if (caseTab) tabStore.closeTab(caseTab.id);
+
+    const { markRecentlySaved } = await import("@/stores/tab-store");
+    markRecentlySaved(requestPath);
+    await deleteRequestCaseApi(requestPath, caseName);
+    await get().refreshCollection(collectionPath);
   },
 
   undoLastAction: async () => {

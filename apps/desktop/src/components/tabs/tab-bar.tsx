@@ -185,6 +185,68 @@ function SortableTab({
   );
 }
 
+function SaveMenu() {
+  const { t } = useTranslation();
+  const activeTab = useTabStore((s) => s.tabs.find((t) => t.id === s.activeTabId));
+  const save = useTabStore((s) => s.save);
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handleClick = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [open]);
+
+  if (!activeTab) return null;
+  const isSaved = !!activeTab.filePath;
+
+  return (
+    <div ref={ref} className="relative flex items-center pb-1.5">
+      <button
+        onClick={() => {
+          if (!isSaved) {
+            window.dispatchEvent(new CustomEvent("apiark:open-save-as"));
+          } else {
+            save();
+          }
+        }}
+        className="flex shrink-0 items-center gap-1.5 rounded-l-lg rounded-r-none bg-[var(--color-elevated)] px-3 py-1.5 text-xs font-medium text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-border)] hover:text-[var(--color-text-primary)]"
+        title={`${t("common.save")} (Ctrl+S)`}
+      >
+        <Save className="h-3.5 w-3.5" />
+        {t("common.save")}
+      </button>
+      {isSaved && (
+        <button
+          onClick={() => setOpen(!open)}
+          className="flex shrink-0 items-center rounded-l-none rounded-r-lg bg-[var(--color-elevated)] px-1.5 py-1.5 text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-border)] hover:text-[var(--color-text-primary)]"
+          title={t("request.saveAsCase")}
+        >
+          <ChevronDown className="h-3.5 w-3.5" />
+        </button>
+      )}
+      {open && isSaved && (
+        <div className="absolute right-0 top-full z-50 mt-1 min-w-[180px] overflow-hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-elevated)] py-1 shadow-xl">
+          <button
+            onClick={() => {
+              window.dispatchEvent(new CustomEvent("apiark:open-save-case"));
+              setOpen(false);
+            }}
+            className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-[var(--color-text-primary)] transition-colors hover:bg-[var(--color-accent-glow)]"
+          >
+            <Save className="h-4 w-4 text-[var(--color-text-muted)]" />
+            {t("request.saveAsCase")}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function NewTabDropdown() {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
@@ -256,9 +318,7 @@ function NewTabDropdown() {
 }
 
 export function TabBar() {
-  const { t } = useTranslation();
-  const { tabs, activeTabId, setActiveTab, closeTab, closeOtherTabs, closeAllTabs, reorderTabs, detachTab, togglePin, duplicateTab, save } = useTabStore();
-  const activeTab = tabs.find((t) => t.id === activeTabId);
+  const { tabs, activeTabId, setActiveTab, closeTab, closeOtherTabs, closeAllTabs, reorderTabs, detachTab, togglePin, duplicateTab } = useTabStore();
 
   // Sort: pinned tabs first, preserving order within each group
   const sortedTabs = [...tabs].sort((a, b) => {
@@ -322,22 +382,7 @@ export function TabBar() {
         </SortableContext>
       </DndContext>
       <div className="flex items-center gap-1 pb-1.5">
-        {activeTab?.isDirty && (
-          <button
-            onClick={() => {
-              if (activeTab && !activeTab.filePath) {
-                window.dispatchEvent(new CustomEvent("apiark:open-save-as"));
-              } else {
-                save();
-              }
-            }}
-            className="flex shrink-0 items-center gap-1.5 rounded-lg bg-[var(--color-elevated)] px-3 py-1.5 text-xs font-medium text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-border)] hover:text-[var(--color-text-primary)]"
-            title="Save (Ctrl+S)"
-          >
-            <Save className="h-3.5 w-3.5" />
-            {t("common.save")}
-          </button>
-        )}
+        <SaveMenu />
         <NewTabDropdown />
       </div>
     </div>

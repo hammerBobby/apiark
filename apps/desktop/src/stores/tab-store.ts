@@ -18,6 +18,8 @@ import {
   sendRequestWithScripts,
   readRequestFile,
   saveRequestFile,
+  readRequestCase,
+  saveRequestCase,
   loadPersistedState,
   savePersistedState,
 } from "@/lib/tauri-api";
@@ -33,6 +35,11 @@ interface TabState {
   // Tab management
   newTab: () => void;
   openTab: (filePath: string, collectionPath: string) => Promise<void>;
+  openCaseTab: (
+    filePath: string,
+    caseName: string,
+    collectionPath: string,
+  ) => Promise<void>;
   closeTab: (id: string) => void;
   closeOtherTabs: (id: string) => void;
   closeAllTabs: () => void;
@@ -158,7 +165,7 @@ function ensureUrlScheme(url: string): string {
 const recentlySavedPaths = new Set<string>();
 const RECENTLY_SAVED_TTL = 2000; // ms — ignore watcher events for this long after save
 
-function markRecentlySaved(filePath: string) {
+export function markRecentlySaved(filePath: string) {
   recentlySavedPaths.add(filePath);
   setTimeout(() => recentlySavedPaths.delete(filePath), RECENTLY_SAVED_TTL);
 }
@@ -227,6 +234,7 @@ function createEmptyTab(overrides?: Partial<Tab>): Tab {
     collectionPath: null,
     isDirty: false,
     protocol: "http",
+    caseName: null,
     graphql: null,
     grpc: null,
     method: "GET",
@@ -276,6 +284,7 @@ export function requestFileToTab(
   file: RequestFile,
   filePath: string,
   collectionPath: string | null,
+  caseName?: string | null,
 ): Tab {
   // Convert Record<string, string> headers to KeyValuePair[]
   const headers: KeyValuePair[] = Object.entries(file.headers || {}).map(
@@ -398,6 +407,7 @@ export function requestFileToTab(
     collectionPath,
     isDirty: false,
     protocol,
+    caseName: caseName ?? null,
     graphql: graphqlState,
     grpc: grpcState,
     method: file.method,
@@ -429,7 +439,7 @@ export function requestFileToTab(
   };
 }
 
-function tabToRequestFile(tab: Tab): RequestFile {
+export function tabToRequestFile(tab: Tab): RequestFile {
   // Convert KeyValuePair[] to Record<string, string> (only enabled, non-empty)
   const headers: Record<string, string> = {};
   for (const h of tab.headers) {
@@ -599,8 +609,10 @@ export const useTabStore = create<TabState>((set, get) => ({
   },
 
   openTab: async (filePath, collectionPath) => {
-    // Check if already open
-    const existing = get().tabs.find((t) => t.filePath === filePath);
+    // Check if already open (case tabs share the same filePath, so exclude them)
+    const existing = get().tabs.find(
+      (t) => t.filePath === filePath && t.caseName === null,
+    );
     if (existing) {
       set({ activeTabId: existing.id });
       return;
@@ -631,6 +643,30 @@ export const useTabStore = create<TabState>((set, get) => ({
         const { useToastStore } = await import("@/stores/toast-store");
         useToastStore.getState().showError(`Failed to open request: ${String((err as { message?: string })?.message ?? err)}`);
       }
+    }
+  },
+
+  openCaseTab: async (filePath, caseName, collectionPath) => {
+    const existing = get().tabs.find(
+      (t) => t.filePath === filePath && t.caseName === caseName,
+    );
+    if (existing) {
+      set({ activeTabId: existing.id });
+      return;
+    }
+
+    try {
+      const file = await readRequestCase(filePath, caseName);
+      const tab = requestFileToTab(file, filePath, collectionPath, caseName);
+      set((state) => ({
+        tabs: [...state.tabs, tab],
+        activeTabId: tab.id,
+      }));
+    } catch (err) {
+      const { useToastStore } = await import("@/stores/toast-store");
+      useToastStore
+        .getState()
+        .showError(`Failed to open case: ${String((err as { message?: string })?.message ?? err)}`);
     }
   },
 
@@ -921,7 +957,18 @@ export const useTabStore = create<TabState>((set, get) => ({
     try {
       const requestFile = tabToRequestFile(tab);
       markRecentlySaved(tab.filePath);
-      await saveRequestFile(tab.filePath, requestFile);
+      if (tab.caseName) {
+        // Case tab: upsert into the parent request YAML's `cases` array.
+        // caseName is authoritative for identity (tab.name may lag behind).
+        await saveRequestCase(tab.filePath, { ...requestFile, name: tab.caseName });
+        // Keep tree metadata (method label, case list) in sync.
+        if (tab.collectionPath) {
+          const { useCollectionStore } = await import("@/stores/collection-store");
+          useCollectionStore.getState().refreshCollection(tab.collectionPath).catch(() => {});
+        }
+      } else {
+        await saveRequestFile(tab.filePath, requestFile);
+      }
       set({
         tabs: get().tabs.map((t) =>
           t.id === activeTabId ? { ...t, isDirty: false } : t,
@@ -942,7 +989,11 @@ export const useTabStore = create<TabState>((set, get) => ({
     try {
       const requestFile = tabToRequestFile(tab);
       markRecentlySaved(tab.filePath);
-      await saveRequestFile(tab.filePath, requestFile);
+      if (tab.caseName) {
+        await saveRequestCase(tab.filePath, { ...requestFile, name: tab.caseName });
+      } else {
+        await saveRequestFile(tab.filePath, requestFile);
+      }
       set({
         autoSaveError: null,
         tabs: get().tabs.map((t) =>
@@ -1035,8 +1086,15 @@ export const useTabStore = create<TabState>((set, get) => ({
     const tab = get().tabs.find((t) => t.id === tabId);
     if (!tab || !tab.filePath || !tab.collectionPath) return;
     try {
-      const file = await readRequestFile(tab.filePath);
-      const reloaded = requestFileToTab(file, tab.filePath, tab.collectionPath);
+      const file = tab.caseName
+        ? await readRequestCase(tab.filePath, tab.caseName)
+        : await readRequestFile(tab.filePath);
+      const reloaded = requestFileToTab(
+        file,
+        tab.filePath,
+        tab.collectionPath,
+        tab.caseName,
+      );
       set((state) => ({
         tabs: state.tabs.map((t) =>
           t.id === tabId
@@ -1081,15 +1139,21 @@ export const useTabStore = create<TabState>((set, get) => ({
   persistTabs: () => {
     const { tabs, activeTabId } = get();
     // Only persist file-backed tabs (exclude ephemeral WS/SSE tabs), deduplicated
+    // by filePath + caseName (case tabs share the parent request's filePath).
     const seen = new Set<string>();
     const persistedTabs = tabs
       .filter((t) => {
         if (!t.filePath || !t.collectionPath || t.protocol === "websocket" || t.protocol === "sse" || t.protocol === "grpc") return false;
-        if (seen.has(t.filePath)) return false;
-        seen.add(t.filePath);
+        const key = `${t.filePath}\u0000${t.caseName ?? ""}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
         return true;
       })
-      .map((t) => ({ filePath: t.filePath!, collectionPath: t.collectionPath! }));
+      .map((t) => ({
+        filePath: t.filePath!,
+        collectionPath: t.collectionPath!,
+        caseName: t.caseName,
+      }));
     const activeIndex = tabs.findIndex((t) => t.id === activeTabId);
 
     // Capture window position/size — use normal (non-maximized) geometry
@@ -1151,23 +1215,32 @@ export const useTabStore = create<TabState>((set, get) => ({
         }
         return;
       }
-      const seenPaths = new Set<string>();
+      const seenKeys = new Set<string>();
 
       for (const pt of persisted.tabs) {
-        // Deduplicate — only restore one tab per file path
-        if (seenPaths.has(pt.filePath)) continue;
-        seenPaths.add(pt.filePath);
+        // Deduplicate — one tab per filePath + caseName (case tabs share the
+        // parent request's filePath)
+        const key = `${pt.filePath}\u0000${pt.caseName ?? ""}`;
+        if (seenKeys.has(key)) continue;
+        seenKeys.add(key);
 
         try {
-          const file = await readRequestFile(pt.filePath);
-          const tab = requestFileToTab(file, pt.filePath, pt.collectionPath);
+          const file = pt.caseName
+            ? await readRequestCase(pt.filePath, pt.caseName)
+            : await readRequestFile(pt.filePath);
+          const tab = requestFileToTab(
+            file,
+            pt.filePath,
+            pt.collectionPath,
+            pt.caseName ?? null,
+          );
           set((state) => ({
             tabs: [...state.tabs, tab],
             activeTabId: state.activeTabId ?? tab.id,
           }));
           if (pt.collectionPath) collectionPaths.add(pt.collectionPath);
         } catch {
-          // File may have been deleted, skip it
+          // File or case may have been deleted, skip it
           // Still try to restore the collection sidebar
           if (pt.collectionPath) collectionPaths.add(pt.collectionPath);
         }

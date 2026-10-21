@@ -172,7 +172,7 @@ function FolderTreeNode({
   depth: number;
 }) {
   // Only show collections and folders as save targets
-  if (node.type === "request") return null;
+  if (node.type === "request" || node.type === "case") return null;
 
   const isExpanded = expandedPaths.has(node.path);
   const isSelected = selectedPath === node.path;

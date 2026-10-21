@@ -69,6 +69,16 @@ interface FlatNode {
   collectionName: string;
   /** Parent directory path for DnD sibling grouping */
   parentDir: string;
+  /** Unique identity: cases share their parent request's path, so they need
+   * a distinct key for React lists, DnD ids, and expand-state lookups. */
+  id: string;
+}
+
+/** Unique id for a flat node (cases share their parent request's path). */
+function nodeFlatId(node: CollectionNode): string {
+  return node.type === "case"
+    ? `${node.path}\u0000case\u0000${node.name}`
+    : node.path;
 }
 
 // ── Utility functions ──
@@ -118,7 +128,11 @@ function fuzzyScore(text: string, query: string): number {
 function nodeMatchesSearch(node: CollectionNode, query: string): boolean {
   if (!query) return true;
   if (fuzzyScore(node.name, query) > 0) return true;
-  if (node.type !== "request" && node.children.length > 0) {
+  if (node.type === "request") {
+    return (node.cases ?? []).some((child) => nodeMatchesSearch(child, query));
+  }
+  if (node.type === "case") return false;
+  if (node.children.length > 0) {
     return node.children.some((child) => nodeMatchesSearch(child, query));
   }
   return false;
@@ -140,9 +154,16 @@ function flattenTree(
     : nodes;
 
   for (const node of filtered) {
-    result.push({ node, depth, collectionPath, collectionName, parentDir });
+    result.push({
+      node,
+      depth,
+      collectionPath,
+      collectionName,
+      parentDir,
+      id: nodeFlatId(node),
+    });
 
-    if (node.type !== "request") {
+    if (node.type === "folder" || node.type === "collection") {
       const isExpanded = expandedPaths.has(node.path) || !!searchQuery;
       if (isExpanded && node.children.length > 0) {
         flattenTree(
@@ -150,6 +171,22 @@ function flattenTree(
           expandedPaths,
           collectionPath,
           node.type === "collection" ? node.name : collectionName,
+          searchQuery,
+          depth + 1,
+          node.path,
+          result,
+        );
+      }
+    } else if (node.type === "request" && (node.cases?.length ?? 0) > 0) {
+      // Cases (用例) are child nodes of a request, expanded like folders.
+      // parentDir = the request file path, but cases never participate in DnD.
+      const isExpanded = expandedPaths.has(node.path) || !!searchQuery;
+      if (isExpanded) {
+        flattenTree(
+          node.cases!,
+          expandedPaths,
+          collectionPath,
+          collectionName,
           searchQuery,
           depth + 1,
           node.path,
@@ -216,8 +253,8 @@ export function CollectionTree({
       const { active, over } = event;
       if (!over || active.id === over.id) return;
 
-      const activeFlat = flatNodes.find((f) => f.node.path === active.id);
-      const overFlat = flatNodes.find((f) => f.node.path === over.id);
+      const activeFlat = flatNodes.find((f) => f.id === active.id);
+      const overFlat = flatNodes.find((f) => f.id === over.id);
       if (!activeFlat || !overFlat) return;
 
       // Only allow reordering within the same parent
@@ -260,7 +297,7 @@ export function CollectionTree({
       onDragEnd={handleDragEnd}
     >
       <SortableContext
-        items={flatNodes.map((f) => f.node.path)}
+        items={flatNodes.filter((f) => f.node.type !== "case").map((f) => f.id)}
         strategy={verticalListSortingStrategy}
       >
         {needsOwnScroll ? (
@@ -276,7 +313,7 @@ export function CollectionTree({
                 const flat = flatNodes[virtualRow.index];
                 return (
                   <VirtualRow
-                    key={flat.node.path}
+                    key={flat.id}
                     flat={flat}
                     style={{
                       position: "absolute",
@@ -303,7 +340,7 @@ export function CollectionTree({
               const flat = flatNodes[virtualRow.index];
               return (
                 <VirtualRow
-                  key={flat.node.path}
+                  key={flat.id}
                   flat={flat}
                   style={{
                     position: "absolute",
@@ -326,6 +363,18 @@ export function CollectionTree({
 // ── Virtual row wrapper with DnD ──
 
 function VirtualRow({ flat, style }: { flat: FlatNode; style: React.CSSProperties }) {
+  // Case rows never participate in drag-and-drop (they live inside a request
+  // file, not on disk), so they are rendered without a sortable wrapper.
+  // They still need the virtualizer's absolute-position style, otherwise they
+  // fall into normal flow and overlap the first visible row.
+  if (flat.node.type === "case") {
+    return (
+      <div style={style}>
+        <TreeNodeRow flat={flat} dragHandleProps={{}} />
+      </div>
+    );
+  }
+
   const {
     attributes,
     listeners,
@@ -333,7 +382,7 @@ function VirtualRow({ flat, style }: { flat: FlatNode; style: React.CSSPropertie
     transform,
     transition,
     isDragging,
-  } = useSortable({ id: flat.node.path });
+  } = useSortable({ id: flat.id });
 
   const dndStyle: React.CSSProperties = {
     ...style,
@@ -363,9 +412,9 @@ function TreeNodeRow({
 }) {
   const { t } = useTranslation();
   const { node, depth, collectionPath, collectionName } = flat;
-  const { expandedPaths, toggleExpand, createRequest, createFolder, deleteItem, renameItem } =
+  const { expandedPaths, toggleExpand, createRequest, createFolder, deleteItem, renameItem, renameCase, deleteCase } =
     useCollectionStore();
-  const { openTab } = useTabStore();
+  const { openTab, openCaseTab } = useTabStore();
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [renaming, setRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState("");
@@ -498,6 +547,16 @@ function TreeNodeRow({
     }
   };
 
+  const confirmDeleteCase = async () => {
+    try {
+      await deleteCase(node.path, node.name, collectionPath);
+    } catch (err) {
+      import("@/stores/toast-store").then(({ useToastStore }) =>
+        useToastStore.getState().showError(`Failed to delete: ${err}`),
+      );
+    }
+  };
+
   const confirmDeleteCollection = async () => {
     try {
       await useCollectionStore.getState().deleteCollection(node.path, collectionName);
@@ -518,13 +577,91 @@ function TreeNodeRow({
     setRenaming(false);
     if (!renameValue.trim() || renameValue === node.name) return;
     try {
-      await renameItem(node.path, renameValue.trim(), collectionPath);
+      if (node.type === "case") {
+        await renameCase(node.path, node.name, renameValue.trim(), collectionPath);
+      } else {
+        await renameItem(node.path, renameValue.trim(), collectionPath);
+      }
     } catch (err) {
       import("@/stores/toast-store").then(({ useToastStore }) =>
         useToastStore.getState().showError(`Failed to rename: ${err}`),
       );
     }
   };
+
+  // ── Case (用例) row ──
+  if (node.type === "case") {
+    const methodClass =
+      node.protocol === "graphql" ? "text-violet-400"
+      : node.protocol === "websocket" ? "text-cyan-400"
+      : node.protocol === "sse" ? "text-orange-400"
+      : node.protocol === "grpc" ? "text-green-400"
+      : METHOD_COLORS[node.method];
+    return (
+      <>
+        <div
+          className="group relative flex w-full items-center gap-1.5 rounded px-2 py-1 text-sm hover:bg-[var(--color-elevated)]"
+          style={{ paddingLeft: `${depth * 16 + 8}px` }}
+          onContextMenu={handleContextMenu}
+        >
+          <span
+            className="flex min-w-0 flex-1 cursor-pointer items-center text-[var(--color-text-secondary)]"
+            onClick={() => openCaseTab(node.path, node.name, collectionPath)}
+          >
+            <span className={`w-9 shrink-0 text-[10px] font-bold ${methodClass}`}>
+              {node.protocol === "graphql" ? "GQL"
+                : node.protocol === "websocket" ? "WS"
+                : node.protocol === "sse" ? "SSE"
+                : node.protocol === "grpc" ? "gRPC"
+                : node.method}
+            </span>
+            <span className="truncate">{node.name}</span>
+          </span>
+          {/* Action buttons — visible on hover */}
+          <span className="flex shrink-0 items-center gap-0.5 opacity-0 group-hover:opacity-100">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                handleRename();
+              }}
+              className="rounded p-0.5 text-[var(--color-text-muted)] hover:bg-[var(--color-border)] hover:text-[var(--color-text-primary)]"
+              title={t("common.rename")}
+            >
+              <Pencil className="h-3 w-3" />
+            </button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                handleDelete();
+              }}
+              className="rounded p-0.5 text-[var(--color-text-muted)] hover:bg-red-500/20 hover:text-red-400"
+              title={t("common.delete")}
+            >
+              <Trash2 className="h-3 w-3" />
+            </button>
+          </span>
+        </div>
+        {contextMenu && (
+          <ContextMenu
+            x={contextMenu.x}
+            y={contextMenu.y}
+            onClose={closeContextMenu}
+            items={[
+              { label: t("common.rename"), icon: Pencil, onClick: handleRename },
+              { label: t("common.delete"), icon: Trash2, onClick: handleDelete, danger: true },
+            ]}
+          />
+        )}
+        <ConfirmDialog
+          open={deleteConfirm}
+          onOpenChange={setDeleteConfirm}
+          title={t("confirmDelete.title")}
+          message={`${t("confirmDelete.message", `Delete "${node.name}"?`)}`}
+          onConfirm={confirmDeleteCase}
+        />
+      </>
+    );
+  }
 
   if (node.type === "request") {
     return (
@@ -540,6 +677,21 @@ function TreeNodeRow({
           >
             <GripVertical className="h-3 w-3 text-[var(--color-text-muted)]" />
           </span>
+          {(node.cases?.length ?? 0) > 0 && (
+            <button
+              className="shrink-0"
+              onClick={(e) => {
+                e.stopPropagation();
+                toggleExpand(node.path);
+              }}
+            >
+              {isExpanded ? (
+                <ChevronDown className="h-3.5 w-3.5 text-[var(--color-text-muted)]" />
+              ) : (
+                <ChevronRight className="h-3.5 w-3.5 text-[var(--color-text-muted)]" />
+              )}
+            </button>
+          )}
           <span
             className={`w-9 shrink-0 text-[10px] font-bold ${
               node.protocol === "graphql" || node.isGraphql ? "text-violet-400"
@@ -574,6 +726,11 @@ function TreeNodeRow({
                 onClick={() => openTab(node.path, collectionPath)}
               >
                 {node.name}
+                {(node.cases?.length ?? 0) > 0 && (
+                  <span className="ml-1 text-[10px] text-[var(--color-text-muted)]">
+                    ({node.cases!.length})
+                  </span>
+                )}
               </span>
               {/* Action buttons — visible on hover */}
               <span className="flex shrink-0 items-center gap-0.5 opacity-0 group-hover:opacity-100">

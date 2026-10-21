@@ -63,6 +63,8 @@ fn export_nodes_to_dir(nodes: &[CollectionNode], dir: &Path) -> Result<(), Strin
                     }
                 }
             }
+            // Cases are internal to request files; not exported.
+            CollectionNode::Case { .. } => {}
         }
     }
     Ok(())

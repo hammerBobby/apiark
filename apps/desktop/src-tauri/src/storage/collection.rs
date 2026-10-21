@@ -83,14 +83,29 @@ fn scan_directory(dir: &Path) -> Result<Vec<CollectionNode>, String> {
                     let detected = meta.detect_protocol();
                     let is_gql = detected == Some("graphql");
                     let protocol = detected.map(|s| s.to_string());
+                    let file_path = path.to_string_lossy().to_string();
+                    let cases = meta
+                        .cases
+                        .iter()
+                        .map(|c| CollectionNode::Case {
+                            name: c.name.clone(),
+                            method: c.method.clone(),
+                            path: file_path.clone(),
+                            protocol: c
+                                .protocol
+                                .clone()
+                                .or_else(|| detected.map(|s| s.to_string())),
+                        })
+                        .collect();
                     requests.push((
                         order_map.get(&stem).copied().unwrap_or(usize::MAX),
                         CollectionNode::Request {
                             name: meta.name,
                             is_graphql: is_gql,
                             method: meta.method,
-                            path: path.to_string_lossy().to_string(),
+                            path: file_path,
                             protocol,
+                            cases,
                         },
                     ));
                 }
@@ -120,7 +135,8 @@ fn node_name(node: &CollectionNode) -> &str {
     match node {
         CollectionNode::Collection { name, .. }
         | CollectionNode::Folder { name, .. }
-        | CollectionNode::Request { name, .. } => name,
+        | CollectionNode::Request { name, .. }
+        | CollectionNode::Case { name, .. } => name,
     }
 }
 
@@ -162,6 +178,58 @@ pub fn write_request(path: &Path, request: &RequestFile) -> Result<(), String> {
     let yaml =
         serde_yaml::to_string(request).map_err(|e| format!("Failed to serialize request: {e}"))?;
     atomic_write(path, &yaml)
+}
+
+/// Read a single named case (用例) from a request YAML file.
+pub fn read_request_case(path: &Path, case_name: &str) -> Result<RequestFile, String> {
+    let request = read_request(path)?;
+    request
+        .cases
+        .into_iter()
+        .find(|c| c.name == case_name)
+        .ok_or_else(|| format!("Case not found: {case_name}"))
+}
+
+/// Insert or replace a case (matched by its name) in a request YAML file.
+pub fn upsert_request_case(path: &Path, case: RequestFile) -> Result<(), String> {
+    if case.name.trim().is_empty() {
+        return Err("Case name cannot be empty".to_string());
+    }
+    let mut request = read_request(path)?;
+    match request.cases.iter_mut().find(|c| c.name == case.name) {
+        Some(existing) => *existing = case,
+        None => request.cases.push(case),
+    }
+    write_request(path, &request)
+}
+
+/// Rename a case inside a request YAML file.
+pub fn rename_request_case(path: &Path, old_name: &str, new_name: &str) -> Result<(), String> {
+    if new_name.trim().is_empty() {
+        return Err("Case name cannot be empty".to_string());
+    }
+    let mut request = read_request(path)?;
+    if new_name != old_name && request.cases.iter().any(|c| c.name == new_name) {
+        return Err(format!("A case named \"{new_name}\" already exists"));
+    }
+    let case = request
+        .cases
+        .iter_mut()
+        .find(|c| c.name == old_name)
+        .ok_or_else(|| format!("Case not found: {old_name}"))?;
+    case.name = new_name.to_string();
+    write_request(path, &request)
+}
+
+/// Delete a case from a request YAML file.
+pub fn delete_request_case(path: &Path, case_name: &str) -> Result<(), String> {
+    let mut request = read_request(path)?;
+    let before = request.cases.len();
+    request.cases.retain(|c| c.name != case_name);
+    if request.cases.len() == before {
+        return Err(format!("Case not found: {case_name}"));
+    }
+    write_request(path, &request)
 }
 
 /// Create a new request YAML file.
@@ -342,4 +410,61 @@ fn atomic_write(path: &Path, content: &str) -> Result<(), String> {
         let _ = fs::remove_file(&tmp_path);
         format!("Failed to rename temp file: {e}")
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+
+    fn case_request(name: &str) -> RequestFile {
+        serde_yaml::from_str(&format!(
+            "name: {name}\nmethod: GET\nurl: https://example.com\n"
+        ))
+        .expect("parse case request")
+    }
+
+    fn temp_request_file() -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("apiark_case_test_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("req.yaml");
+        let yaml = "name: My Request\nmethod: POST\nurl: https://example.com\n";
+        let mut f = std::fs::File::create(&path).unwrap();
+        f.write_all(yaml.as_bytes()).unwrap();
+        path
+    }
+
+    #[test]
+    fn case_upsert_rename_delete_roundtrip() {
+        let path = temp_request_file();
+
+        // Insert two cases; re-inserting the same name must replace, not duplicate.
+        upsert_request_case(&path, case_request("Case A")).unwrap();
+        upsert_request_case(&path, case_request("Case B")).unwrap();
+        upsert_request_case(&path, case_request("Case A")).unwrap();
+
+        assert_eq!(read_request_case(&path, "Case A").unwrap().name, "Case A");
+        assert_eq!(read_request_case(&path, "Case B").unwrap().name, "Case B");
+
+        // The request file itself must still parse and carry the cases.
+        let meta = read_request_meta(&path).unwrap();
+        assert_eq!(meta.cases.len(), 2);
+
+        // Rename
+        rename_request_case(&path, "Case A", "Case A2").unwrap();
+        assert_eq!(read_request_case(&path, "Case A2").unwrap().name, "Case A2");
+        assert!(read_request_case(&path, "Case A").is_err());
+        // Duplicate target name rejected
+        assert!(rename_request_case(&path, "Case A2", "Case B").is_err());
+        // Empty name rejected
+        assert!(rename_request_case(&path, "Case A2", "   ").is_err());
+
+        // Delete
+        delete_request_case(&path, "Case B").unwrap();
+        assert!(read_request_case(&path, "Case B").is_err());
+        // Deleting a missing case errors
+        assert!(delete_request_case(&path, "Case B").is_err());
+
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
 }

@@ -79,6 +79,10 @@ pub struct RequestFile {
     /// Last known response, persisted so it can be restored after reopening the tab.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub response: Option<ResponseData>,
+    /// Named cases (用例) saved under this request. Each case is a full
+    /// request snapshot and behaves like a normal request everywhere.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cases: Vec<RequestFile>,
 }
 
 /// Body stored in YAML files
@@ -117,6 +121,18 @@ pub struct RequestMeta {
     pub protocol: Option<String>,
     #[serde(default)]
     pub body: Option<RequestBodyFile>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cases: Vec<CaseMeta>,
+}
+
+/// Lightweight per-case metadata for tree rendering.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CaseMeta {
+    pub name: String,
+    pub method: HttpMethod,
+    #[serde(default)]
+    pub protocol: Option<String>,
 }
 
 impl RequestMeta {
@@ -177,6 +193,18 @@ pub enum CollectionNode {
         )]
         is_graphql: bool,
         /// Protocol: "graphql", "websocket", "sse", "grpc", or absent for HTTP
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        protocol: Option<String>,
+        /// Named cases (用例) saved under this request, as child nodes.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        cases: Vec<CollectionNode>,
+    },
+    /// A saved case (用例) belonging to the request YAML at `path`.
+    Case {
+        name: String,
+        method: HttpMethod,
+        /// Path of the parent request YAML file.
+        path: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         protocol: Option<String>,
     },

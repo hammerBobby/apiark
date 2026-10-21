@@ -109,7 +109,11 @@
     "requestName": "Request Name",
     "requestNamePlaceholder": "My Request",
     "filename": "Filename:",
-    "saveRequest": "Save Request"
+    "saveRequest": "Save Request",
+    "saveAsCase": "Save as Case",
+    "caseName": "Case name",
+    "caseNamePlaceholder": "e.g. Success - 200",
+    "saveAsCaseSuccess": "Case saved"
   },
   "body": {
     "json": "JSON",

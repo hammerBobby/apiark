@@ -105,7 +105,11 @@
     "requestName": "Nome da Requisição",
     "requestNamePlaceholder": "Minha Requisição",
     "filename": "Nome do arquivo:",
-    "saveRequest": "Salvar Requisição"
+    "saveRequest": "Salvar Requisição",
+    "saveAsCase": "Salvar como caso",
+    "caseName": "Nome do caso",
+    "caseNamePlaceholder": "ex. Sucesso - 200",
+    "saveAsCaseSuccess": "Caso salvo"
   },
   "body": {
     "json": "JSON",

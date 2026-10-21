@@ -49,6 +49,7 @@ function __makeStore(source, target) {
   var data = Object.assign({}, source);
   return {
     get: function(k) { return data[k]; },
+    has: function(k) { return Object.prototype.hasOwnProperty.call(data, k); },
     set: function(k, v) { data[k] = String(v); target[k] = String(v); },
     unset: function(k) { delete data[k]; target[k] = null; },
     toObject: function() { return Object.assign({}, data); }
@@ -219,6 +220,18 @@ var ark = {
   env: __makeStore(__ctx.env, __mutations.env),
   globals: __makeStore(__ctx.globals, __mutations.globals),
   variables: __makeStore(__ctx.variables, __mutations.variables),
+  crypto: {
+    // RSA PKCS#1 v1.5 SHA-256 signature (matches KJUR SHA256withRSA).
+    // pem: PKCS#8 or PKCS#1 private key; data: message to sign.
+    // Returns a base64-encoded signature; throws on failure.
+    rsaSignSha256: function(pem, data) {
+      var result = __arkRsaSignSha256(pem, data);
+      if (result === null || result === undefined) {
+        throw new Error("RSA signing failed: " + __arkRsaLastError());
+      }
+      return result;
+    }
+  },
   test: function(name, fn) {
     try {
       fn();

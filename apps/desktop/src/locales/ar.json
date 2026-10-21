@@ -105,7 +105,11 @@
     "requestName": "اسم الطلب",
     "requestNamePlaceholder": "طلبي",
     "filename": "اسم الملف:",
-    "saveRequest": "حفظ الطلب"
+    "saveRequest": "حفظ الطلب",
+    "saveAsCase": "حفظ كحالة",
+    "caseName": "اسم الحالة",
+    "caseNamePlaceholder": "مثال: نجاح - 200",
+    "saveAsCaseSuccess": "تم حفظ الحالة"
   },
   "body": {
     "json": "JSON",

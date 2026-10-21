@@ -109,7 +109,11 @@
     "requestName": "请求名称",
     "requestNamePlaceholder": "我的请求",
     "filename": "文件名：",
-    "saveRequest": "保存请求"
+    "saveRequest": "保存请求",
+    "saveAsCase": "保存为用例",
+    "caseName": "用例名称",
+    "caseNamePlaceholder": "例如：成功 - 200",
+    "saveAsCaseSuccess": "用例已保存"
   },
   "body": {
     "json": "JSON",
