@@ -191,6 +191,17 @@ export type CollectionNode =
       path: string;
       isGraphql?: boolean;
       protocol?: string;
+      /** Named cases (用例) saved under this request, as child nodes. */
+      cases?: CollectionNode[];
+    }
+  | {
+      /** A saved case (用例) belonging to the request YAML at `path`. */
+      type: "case";
+      name: string;
+      method: HttpMethod;
+      /** Path of the parent request YAML file. */
+      path: string;
+      protocol?: string;
     };
 
 // ── Collection Defaults ──
@@ -257,6 +268,8 @@ export interface RequestFile {
   assert?: unknown;
   cookies?: Record<string, string>;
   response?: ResponseData;
+  /** Named cases (用例) saved under this request. */
+  cases?: RequestFile[];
 }
 
 // ── Environment ──
@@ -582,6 +595,8 @@ export interface FileChangeEvent {
 export interface PersistedTab {
   filePath: string;
   collectionPath: string;
+  /** Set when the tab edits a case (用例) inside the request file. */
+  caseName?: string | null;
 }
 
 export interface WindowState {
@@ -642,6 +657,9 @@ export interface Tab {
 
   // File watcher conflict state
   conflictState: "external-change" | "deleted" | "merge-conflict" | null;
+
+  // Case (用例) state: set when this tab edits a case inside a request file
+  caseName: string | null;
 
   // Pinned state
   pinned: boolean;
