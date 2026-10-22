@@ -11,6 +11,8 @@ import {
   ChevronDown,
   Folder,
   FolderOpen,
+  Package,
+  PackageOpen,
   FilePlus,
   FolderPlus,
   Trash2,
@@ -23,8 +25,16 @@ import {
   X,
   FolderX,
   Copy,
+  CopyPlus,
 } from "lucide-react";
-import { getCollectionDefaults, updateCollectionDefaults } from "@/lib/tauri-api";
+import {
+  getCollectionDefaults,
+  updateCollectionDefaults,
+  readRequestFile,
+  saveRequestFile,
+  readRequestCase,
+  createRequest as createRequestApi,
+} from "@/lib/tauri-api";
 import { useToastStore } from "@/stores/toast-store";
 import { buildCurlFromFile, copyToClipboard } from "@/lib/curl-export";
 import * as Dialog from "@radix-ui/react-dialog";
@@ -412,7 +422,7 @@ function TreeNodeRow({
 }) {
   const { t } = useTranslation();
   const { node, depth, collectionPath, collectionName } = flat;
-  const { expandedPaths, toggleExpand, createRequest, createFolder, deleteItem, renameItem, renameCase, deleteCase } =
+  const { expandedPaths, toggleExpand, createRequest, createFolder, deleteItem, renameItem, renameCase, deleteCase, saveCase, refreshCollection } =
     useCollectionStore();
   const { openTab, openCaseTab } = useTabStore();
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
@@ -547,6 +557,58 @@ function TreeNodeRow({
     }
   };
 
+  // ── Clone (克隆) — duplicate a request or a case ──
+  const handleClone = async () => {
+    closeContextMenu();
+    const suffix = "Duplicate";
+    try {
+      if (node.type === "request") {
+        // Windows paths use "\", so check both separators before slicing
+        const lastSep = Math.max(
+          node.path.lastIndexOf("/"),
+          node.path.lastIndexOf("\\"),
+        );
+        const dir = lastSep > 0 ? node.path.substring(0, lastSep) : collectionPath;
+        const source = await readRequestFile(node.path);
+        // Generate a unique name/file, retrying with an index on collision
+        let newName = `${node.name} ${suffix}`;
+        let newPath: string | null = null;
+        for (let i = 1; i <= 20 && !newPath; i++) {
+          const attempt = i === 1 ? newName : `${newName} ${i}`;
+          try {
+            newPath = await createRequestApi(
+              dir,
+              attempt.toLowerCase().replace(/\s+/g, "-"),
+              attempt,
+            );
+            newName = attempt;
+          } catch (err) {
+            if (!String(err).includes("already exists")) throw err;
+          }
+        }
+        if (!newPath) throw new Error("No unique name available");
+        // Suppress the watcher reload, then overwrite the scaffold with the
+        // full cloned content (incl. cases) and refresh the sidebar.
+        const { markRecentlySaved } = await import("@/stores/tab-store");
+        markRecentlySaved(newPath);
+        await saveRequestFile(newPath, { ...source, name: newName });
+        await refreshCollection(collectionPath);
+      } else if (node.type === "case") {
+        const requestPath = node.path;
+        const request = await readRequestFile(requestPath);
+        const existing = new Set((request.cases ?? []).map((c) => c.name));
+        let newName = `${node.name} ${suffix}`;
+        for (let i = 2; existing.has(newName); i++) {
+          newName = `${node.name} ${suffix} ${i}`;
+        }
+        const source = await readRequestCase(requestPath, node.name);
+        await saveCase(requestPath, { ...source, name: newName }, collectionPath);
+      }
+    } catch (err) {
+      useToastStore.getState().showError(`Failed to clone: ${err}`);
+    }
+  };
+
   const confirmDeleteCase = async () => {
     try {
       await deleteCase(node.path, node.name, collectionPath);
@@ -591,54 +653,29 @@ function TreeNodeRow({
 
   // ── Case (用例) row ──
   if (node.type === "case") {
-    const methodClass =
-      node.protocol === "graphql" ? "text-violet-400"
-      : node.protocol === "websocket" ? "text-cyan-400"
-      : node.protocol === "sse" ? "text-orange-400"
-      : node.protocol === "grpc" ? "text-green-400"
-      : METHOD_COLORS[node.method];
     return (
       <>
         <div
           className="group relative flex w-full items-center gap-1.5 rounded px-2 py-1 text-sm hover:bg-[var(--color-elevated)]"
-          style={{ paddingLeft: `${depth * 16 + 8}px` }}
+          style={{ paddingLeft: `${depth * 16 + 30}px` }}
           onContextMenu={handleContextMenu}
         >
+          {/* Tree connector: links the case back to its parent request */}
+          <span
+            aria-hidden
+            className="pointer-events-none absolute bottom-0 top-0 w-px bg-[var(--color-border)]"
+            style={{ left: `${(depth - 1) * 16 + 33}px` }}
+          />
+          <span
+            aria-hidden
+            className="pointer-events-none absolute top-1/2 h-px bg-[var(--color-border)]"
+            style={{ left: `${(depth - 1) * 16 + 33}px`, width: "13px" }}
+          />
           <span
             className="flex min-w-0 flex-1 cursor-pointer items-center text-[var(--color-text-secondary)]"
             onClick={() => openCaseTab(node.path, node.name, collectionPath)}
           >
-            <span className={`w-9 shrink-0 text-[10px] font-bold ${methodClass}`}>
-              {node.protocol === "graphql" ? "GQL"
-                : node.protocol === "websocket" ? "WS"
-                : node.protocol === "sse" ? "SSE"
-                : node.protocol === "grpc" ? "gRPC"
-                : node.method}
-            </span>
             <span className="truncate">{node.name}</span>
-          </span>
-          {/* Action buttons — visible on hover */}
-          <span className="flex shrink-0 items-center gap-0.5 opacity-0 group-hover:opacity-100">
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                handleRename();
-              }}
-              className="rounded p-0.5 text-[var(--color-text-muted)] hover:bg-[var(--color-border)] hover:text-[var(--color-text-primary)]"
-              title={t("common.rename")}
-            >
-              <Pencil className="h-3 w-3" />
-            </button>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                handleDelete();
-              }}
-              className="rounded p-0.5 text-[var(--color-text-muted)] hover:bg-red-500/20 hover:text-red-400"
-              title={t("common.delete")}
-            >
-              <Trash2 className="h-3 w-3" />
-            </button>
           </span>
         </div>
         {contextMenu && (
@@ -647,6 +684,7 @@ function TreeNodeRow({
             y={contextMenu.y}
             onClose={closeContextMenu}
             items={[
+              { label: "Duplicate", icon: CopyPlus, onClick: handleClone },
               { label: t("common.rename"), icon: Pencil, onClick: handleRename },
               { label: t("common.delete"), icon: Trash2, onClick: handleDelete, danger: true },
             ]}
@@ -692,21 +730,6 @@ function TreeNodeRow({
               )}
             </button>
           )}
-          <span
-            className={`w-9 shrink-0 text-[10px] font-bold ${
-              node.protocol === "graphql" || node.isGraphql ? "text-violet-400"
-              : node.protocol === "websocket" ? "text-cyan-400"
-              : node.protocol === "sse" ? "text-orange-400"
-              : node.protocol === "grpc" ? "text-green-400"
-              : METHOD_COLORS[node.method]
-            }`}
-          >
-            {node.protocol === "graphql" || node.isGraphql ? "GQL"
-              : node.protocol === "websocket" ? "WS"
-              : node.protocol === "sse" ? "SSE"
-              : node.protocol === "grpc" ? "gRPC"
-              : node.method}
-          </span>
           {renaming ? (
             <input
               autoFocus
@@ -732,39 +755,22 @@ function TreeNodeRow({
                   </span>
                 )}
               </span>
-              {/* Action buttons — visible on hover */}
-              <span className="flex shrink-0 items-center gap-0.5 opacity-0 group-hover:opacity-100">
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                handleRename();
-              }}
-              className="rounded p-0.5 text-[var(--color-text-muted)] hover:bg-[var(--color-border)] hover:text-[var(--color-text-primary)]"
-              title={t("common.rename")}
-            >
-              <Pencil className="h-3 w-3" />
-            </button>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                handleCopyCurl();
-              }}
-              className="rounded p-0.5 text-[var(--color-text-muted)] hover:bg-[var(--color-border)] hover:text-[var(--color-text-primary)]"
-              title={t("common.copyAsCurl")}
-            >
-              <Copy className="h-3 w-3" />
-            </button>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                handleDelete();
-              }}
-              className="rounded p-0.5 text-[var(--color-text-muted)] hover:bg-red-500/20 hover:text-red-400"
-              title={t("common.delete")}
-            >
-              <Trash2 className="h-3 w-3" />
-            </button>
-          </span>
+              {/* Method tag pinned to the right edge */}
+              <span
+                className={`ml-auto w-9 shrink-0 text-right text-[10px] font-bold ${
+                  node.protocol === "graphql" || node.isGraphql ? "text-violet-400"
+                  : node.protocol === "websocket" ? "text-cyan-400"
+                  : node.protocol === "sse" ? "text-orange-400"
+                  : node.protocol === "grpc" ? "text-green-400"
+                  : METHOD_COLORS[node.method]
+                }`}
+              >
+                {node.protocol === "graphql" || node.isGraphql ? "GQL"
+                  : node.protocol === "websocket" ? "WS"
+                  : node.protocol === "sse" ? "SSE"
+                  : node.protocol === "grpc" ? "gRPC"
+                  : node.method}
+              </span>
             </>
           )}
         </div>
@@ -774,6 +780,7 @@ function TreeNodeRow({
             y={contextMenu.y}
             onClose={closeContextMenu}
             items={[
+              { label: "Duplicate", icon: CopyPlus, onClick: handleClone },
               { label: t("common.copyAsCurl"), icon: Copy, onClick: handleCopyCurl },
               { label: t("common.rename"), icon: Pencil, onClick: handleRename },
               { label: t("common.delete"), icon: Trash2, onClick: handleDelete, danger: true },
@@ -800,7 +807,7 @@ function TreeNodeRow({
         onClick={() => toggleExpand(node.path)}
         onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") toggleExpand(node.path); }}
         onContextMenu={handleContextMenu}
-        className="group flex w-full cursor-pointer items-center gap-1.5 rounded px-2 py-1 text-left text-sm hover:bg-[var(--color-elevated)]"
+        className={`group flex w-full cursor-pointer items-center gap-1.5 rounded px-2 py-1 text-left text-sm ${node.type === "collection" ? "bg-[var(--color-accent-glow)] hover:bg-[var(--color-accent-glow)]" : "hover:bg-[var(--color-elevated)]"}`}
         style={{ paddingLeft: `${depth * 16 + 8}px` }}
       >
         {node.type !== "collection" && (
@@ -817,7 +824,13 @@ function TreeNodeRow({
         ) : (
           <ChevronRight className="h-3.5 w-3.5 shrink-0 text-[var(--color-text-muted)]" />
         )}
-        {isExpanded ? (
+        {node.type === "collection" ? (
+          isExpanded ? (
+            <PackageOpen className="h-4 w-4 shrink-0 text-[var(--color-accent)]" />
+          ) : (
+            <Package className="h-4 w-4 shrink-0 text-[var(--color-accent)]" />
+          )
+        ) : isExpanded ? (
           <FolderOpen className="h-3.5 w-3.5 shrink-0 text-[var(--color-text-muted)]" />
         ) : (
           <Folder className="h-3.5 w-3.5 shrink-0 text-[var(--color-text-muted)]" />
@@ -836,7 +849,7 @@ function TreeNodeRow({
             onClick={(e) => e.stopPropagation()}
           />
         ) : (
-          <span className="flex-1 truncate text-[var(--color-text-primary)]">{node.name}</span>
+          <span className={`flex-1 truncate text-[var(--color-text-primary)] ${node.type === "collection" ? "font-semibold" : ""}`}>{node.name}</span>
         )}
         {/* Action buttons — visible on hover */}
         {!renaming && (

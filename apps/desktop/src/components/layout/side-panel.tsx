@@ -4,7 +4,7 @@ import { useCollectionStore } from "@/stores/collection-store";
 import { CollectionTree } from "@/components/collection/collection-tree";
 import { EnvironmentSelector } from "@/components/environment/environment-selector";
 import { HistoryPanel } from "@/components/history/history-panel";
-import { FolderOpen, FolderPlus, Plus, Search, Trash2, X, Upload, FolderX, ChevronDown, ChevronRight, Folder, Globe, Pencil, Settings } from "lucide-react";
+import { FolderOpen, FolderPlus, Plus, Search, Trash2, X, Upload, FolderX, ChevronDown, ChevronRight, Folder, Globe, Pencil, Settings, Package, PackageOpen } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { createCollection, saveEnvironment } from "@/lib/tauri-api";
 import { useEnvironmentStore } from "@/stores/environment-store";
@@ -489,7 +489,7 @@ function CollectionHeader({
       <button
         onClick={() => toggleExpand(collection.path)}
         onContextMenu={onContextMenu}
-        className="group flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-sm hover:bg-[var(--color-elevated)]"
+        className="group flex w-full items-center gap-1.5 rounded bg-[var(--color-accent-glow)] px-2 py-1 text-left text-sm hover:bg-[var(--color-accent-glow)]"
       >
         {isExpanded ? (
           <ChevronDown className="h-3.5 w-3.5 shrink-0 text-[var(--color-text-muted)]" />
@@ -497,9 +497,9 @@ function CollectionHeader({
           <ChevronRight className="h-3.5 w-3.5 shrink-0 text-[var(--color-text-muted)]" />
         )}
         {isExpanded ? (
-          <FolderOpen className="h-3.5 w-3.5 shrink-0 text-[var(--color-text-muted)]" />
+          <PackageOpen className="h-4 w-4 shrink-0 text-[var(--color-accent)]" />
         ) : (
-          <Folder className="h-3.5 w-3.5 shrink-0 text-[var(--color-text-muted)]" />
+          <Package className="h-4 w-4 shrink-0 text-[var(--color-accent)]" />
         )}
         {renaming ? (
           <input
@@ -515,7 +515,7 @@ function CollectionHeader({
             onClick={(e) => e.stopPropagation()}
           />
         ) : (
-          <span className="flex-1 truncate text-[var(--color-text-primary)]">{collection.name}</span>
+          <span className="flex-1 truncate font-semibold text-[var(--color-text-primary)]">{collection.name}</span>
         )}
         {!renaming && (
           <span className="flex shrink-0 items-center gap-0.5 opacity-0 group-hover:opacity-100">
