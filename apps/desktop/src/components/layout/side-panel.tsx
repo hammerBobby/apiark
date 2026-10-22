@@ -4,7 +4,7 @@ import { useCollectionStore } from "@/stores/collection-store";
 import { CollectionTree } from "@/components/collection/collection-tree";
 import { EnvironmentSelector } from "@/components/environment/environment-selector";
 import { HistoryPanel } from "@/components/history/history-panel";
-import { FolderOpen, FolderPlus, Plus, Search, Trash2, X, Upload, FolderX, ChevronDown, ChevronRight, Folder, Globe, Pencil, Settings, Package, PackageOpen } from "lucide-react";
+import { FolderOpen, FolderPlus, Plus, Search, Trash2, X, Upload, FolderX, ChevronDown, ChevronRight, Globe, Pencil, Settings, Package, PackageOpen } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { createCollection, saveEnvironment } from "@/lib/tauri-api";
 import { useEnvironmentStore } from "@/stores/environment-store";

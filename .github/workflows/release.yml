@@ -41,6 +41,18 @@ jobs:
         with:
           script: |
             const tag = '${{ steps.tag.outputs.tag }}';
+            // Reuse an existing release (e.g. left over from a failed run) instead of failing
+            try {
+              const existing = await github.rest.repos.getReleaseByTag({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                tag,
+              });
+              console.log(`Release for ${tag} already exists (id=${existing.data.id}), reusing it.`);
+              return existing.data.id;
+            } catch (err) {
+              if (err.status !== 404) throw err;
+            }
             const { data } = await github.rest.repos.createRelease({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -404,13 +416,30 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-            const path = 'apiark-cli-${{ matrix.label }}${{ matrix.ext }}';
+            const releaseId = ${{ needs.create-release.outputs.release_id }};
+            const name = 'apiark-cli-${{ matrix.label }}${{ matrix.ext }}';
+            // Delete same-named asset left over from a previous run, then upload
+            const { data: assets } = await github.rest.repos.listReleaseAssets({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              release_id: releaseId,
+              per_page: 100,
+            });
+            for (const asset of assets) {
+              if (asset.name === name) {
+                await github.rest.repos.deleteReleaseAsset({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  asset_id: asset.id,
+                });
+              }
+            }
             await github.rest.repos.uploadReleaseAsset({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              release_id: ${{ needs.create-release.outputs.release_id }},
-              name: path,
-              data: fs.readFileSync(path),
+              release_id: releaseId,
+              name,
+              data: fs.readFileSync(name),
             });
 
   # ── Publish Release ───────────────────────────────────────────────────
