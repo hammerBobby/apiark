@@ -1,10 +1,22 @@
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 use crate::models::collection::{
     CollectionConfig, CollectionNode, FolderConfig, RequestFile, RequestMeta,
 };
+
+/// Serializes read-modify-write operations on request files. A case save and
+/// an auto-save of the parent request can happen at the same time; without a
+/// lock one of them can write a stale snapshot and drop the other's cases.
+static REQUEST_FILE_MUTATIONS: Mutex<()> = Mutex::new(());
+
+fn lock_request_file_mutations() -> Result<std::sync::MutexGuard<'static, ()>, String> {
+    REQUEST_FILE_MUTATIONS
+        .lock()
+        .map_err(|_| "Request file mutation lock poisoned".to_string())
+}
 
 /// Load a collection tree from a directory containing `.apiark/apiark.yaml`.
 pub fn load_collection_tree(collection_path: &Path) -> Result<CollectionNode, String> {
@@ -180,6 +192,27 @@ pub fn write_request(path: &Path, request: &RequestFile) -> Result<(), String> {
     atomic_write(path, &yaml)
 }
 
+/// Save a request coming from an editor tab without losing its cases.
+///
+/// Tabs serialize only editable request fields and never include `cases`, so a
+/// plain `write_request` would silently erase every case in the YAML. When the
+/// caller does not supply cases explicitly, keep the ones already on disk.
+pub fn write_request_preserving_cases(path: &Path, request: &RequestFile) -> Result<(), String> {
+    let _guard = lock_request_file_mutations()?;
+    if request.cases.is_empty() && path.exists() {
+        // Unparsable files (e.g. merge conflicts) fall through to the plain
+        // write below so the user can still overwrite/save them as before.
+        if let Ok(existing) = read_request(path) {
+            if !existing.cases.is_empty() {
+                let mut merged = request.clone();
+                merged.cases = existing.cases;
+                return write_request(path, &merged);
+            }
+        }
+    }
+    write_request(path, request)
+}
+
 /// Read a single named case (用例) from a request YAML file.
 pub fn read_request_case(path: &Path, case_name: &str) -> Result<RequestFile, String> {
     let request = read_request(path)?;
@@ -195,6 +228,7 @@ pub fn upsert_request_case(path: &Path, case: RequestFile) -> Result<(), String>
     if case.name.trim().is_empty() {
         return Err("Case name cannot be empty".to_string());
     }
+    let _guard = lock_request_file_mutations()?;
     let mut request = read_request(path)?;
     match request.cases.iter_mut().find(|c| c.name == case.name) {
         Some(existing) => *existing = case,
@@ -208,6 +242,7 @@ pub fn rename_request_case(path: &Path, old_name: &str, new_name: &str) -> Resul
     if new_name.trim().is_empty() {
         return Err("Case name cannot be empty".to_string());
     }
+    let _guard = lock_request_file_mutations()?;
     let mut request = read_request(path)?;
     if new_name != old_name && request.cases.iter().any(|c| c.name == new_name) {
         return Err(format!("A case named \"{new_name}\" already exists"));
@@ -223,6 +258,7 @@ pub fn rename_request_case(path: &Path, old_name: &str, new_name: &str) -> Resul
 
 /// Delete a case from a request YAML file.
 pub fn delete_request_case(path: &Path, case_name: &str) -> Result<(), String> {
+    let _guard = lock_request_file_mutations()?;
     let mut request = read_request(path)?;
     let before = request.cases.len();
     request.cases.retain(|c| c.name != case_name);
@@ -416,6 +452,9 @@ fn atomic_write(path: &Path, content: &str) -> Result<(), String> {
 mod tests {
     use super::*;
     use std::io::Write;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static TEST_COUNTER: AtomicU64 = AtomicU64::new(0);
 
     fn case_request(name: &str) -> RequestFile {
         serde_yaml::from_str(&format!(
@@ -425,7 +464,12 @@ mod tests {
     }
 
     fn temp_request_file() -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!("apiark_case_test_{}", std::process::id()));
+        let id = TEST_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!(
+            "apiark_case_test_{}_{}",
+            std::process::id(),
+            id
+        ));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("req.yaml");
         let yaml = "name: My Request\nmethod: POST\nurl: https://example.com\n";
@@ -464,6 +508,40 @@ mod tests {
         assert!(read_request_case(&path, "Case B").is_err());
         // Deleting a missing case errors
         assert!(delete_request_case(&path, "Case B").is_err());
+
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn saving_request_keeps_all_existing_cases() {
+        let path = temp_request_file();
+
+        upsert_request_case(&path, case_request("Case A")).unwrap();
+        upsert_request_case(&path, case_request("Case B")).unwrap();
+
+        // Simulate a tab save: the frontend snapshot contains no `cases` field.
+        let mut from_tab = case_request("My Request");
+        from_tab.url = "https://example.com/updated".to_string();
+        assert!(from_tab.cases.is_empty());
+        write_request_preserving_cases(&path, &from_tab).unwrap();
+
+        let saved = read_request(&path).unwrap();
+        assert_eq!(saved.url, "https://example.com/updated");
+        assert_eq!(saved.cases.len(), 2);
+        assert_eq!(saved.cases[0].name, "Case A");
+        assert_eq!(saved.cases[1].name, "Case B");
+
+        // A save/re-open cycle must still see both cases.
+        write_request_preserving_cases(&path, &saved).unwrap();
+        assert_eq!(read_request_meta(&path).unwrap().cases.len(), 2);
+
+        // An explicit case list (e.g. cloning a request) must be honoured.
+        let mut with_cases = case_request("My Request");
+        with_cases.cases = vec![case_request("Only Case")];
+        write_request_preserving_cases(&path, &with_cases).unwrap();
+        let meta = read_request_meta(&path).unwrap();
+        assert_eq!(meta.cases.len(), 1);
+        assert_eq!(meta.cases[0].name, "Only Case");
 
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }

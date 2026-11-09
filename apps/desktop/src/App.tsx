@@ -51,6 +51,15 @@ const AiAssistantDialog = lazy(() => import("@/components/ai/ai-assistant-dialog
 const SaveAsDialog = lazy(() => import("@/components/request/save-as-dialog").then(m => ({ default: m.SaveAsDialog })));
 const SaveCaseDialog = lazy(() => import("@/components/request/save-case-dialog").then(m => ({ default: m.SaveCaseDialog })));
 
+/** Cases are identified by name; "Save as Case" must always create a new one. */
+function uniqueCaseName(base: string, existingNames: string[]): string {
+  const taken = new Set(existingNames);
+  if (!taken.has(base)) return base;
+  let suffix = 2;
+  while (taken.has(`${base} ${suffix}`)) suffix += 1;
+  return `${base} ${suffix}`;
+}
+
 function App() {
   const { t } = useTranslation();
   const { newTab, closeTab, save, send, persistTabs, restoreTabs, undoTab, redoTab } = useTabStore();
@@ -70,6 +79,7 @@ function App() {
   const [aiOpen, setAiOpen] = useState(false);
   const [saveAsOpen, setSaveAsOpen] = useState(false);
   const [saveCaseOpen, setSaveCaseOpen] = useState(false);
+  const [saveCaseDefaultName, setSaveCaseDefaultName] = useState("");
   const [activeView, setActiveView] = useState<ActivityView>("collections");
   const [sidePanelVisible, setSidePanelVisible] = useState(true);
   const [zenMode, setZenMode] = useState(false);
@@ -153,9 +163,25 @@ function App() {
     return () => window.removeEventListener("apiark:open-save-as", handler);
   }, []);
 
-  // Listen for save-as-case event from TabBar
+  // Listen for save-as-case event from TabBar. Suggest a name that is not yet
+  // used so repeated saves create separate cases instead of replacing one.
   useEffect(() => {
-    const handler = () => setSaveCaseOpen(true);
+    const handler = () => {
+      void (async () => {
+        const store = useTabStore.getState();
+        const tab = store.tabs.find((t) => t.id === store.activeTabId);
+        if (!tab?.filePath) return;
+        const base = tab.name === "Untitled Request" ? "" : tab.name;
+        let defaultName = base;
+        try {
+          const { readRequestFile } = await import("@/lib/tauri-api");
+          const file = await readRequestFile(tab.filePath);
+          defaultName = uniqueCaseName(base, (file.cases ?? []).map((c) => c.name));
+        } catch { /* keep the tab name if the file cannot be read yet */ }
+        setSaveCaseDefaultName(defaultName);
+        setSaveCaseOpen(true);
+      })();
+    };
     window.addEventListener("apiark:open-save-case", handler);
     return () => window.removeEventListener("apiark:open-save-case", handler);
   }, []);
@@ -417,7 +443,7 @@ function App() {
         <SaveCaseDialog
           open={saveCaseOpen}
           onOpenChange={setSaveCaseOpen}
-          defaultName={activeTab?.name === "Untitled Request" ? "" : activeTab?.name ?? ""}
+          defaultName={saveCaseDefaultName}
           onSave={async (caseName) => {
             try {
               const tabStore = useTabStore.getState();
@@ -425,7 +451,15 @@ function App() {
               if (!tab || !tab.filePath || !tab.collectionPath) return;
               const { tabToRequestFile } = await import("@/stores/tab-store");
               const requestFile = tabToRequestFile(tab);
-              requestFile.name = caseName;
+              // A case is a snapshot, never a container for the parent's cases.
+              delete requestFile.cases;
+              let existingNames: string[] = [];
+              try {
+                const { readRequestFile } = await import("@/lib/tauri-api");
+                const parent = await readRequestFile(tab.filePath);
+                existingNames = (parent.cases ?? []).map((c) => c.name);
+              } catch { /* fall back to the name entered in the dialog */ }
+              requestFile.name = uniqueCaseName(caseName, existingNames);
               await useCollectionStore
                 .getState()
                 .saveCase(tab.filePath, requestFile, tab.collectionPath);

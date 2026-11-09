@@ -61,7 +61,8 @@ pub async fn save_request_file(path: String, request: RequestFile) -> Result<(),
     tracing::debug!(path = %path, "Saving request file");
     tokio::task::spawn_blocking(move || {
         let file_path = Path::new(&path);
-        collection::write_request(file_path, &request)
+        // A tab snapshot has no `cases`; keep the ones already stored in the file.
+        collection::write_request_preserving_cases(file_path, &request)
     })
     .await
     .map_err(|e| format!("Task join error: {e}"))?

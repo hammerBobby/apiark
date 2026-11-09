@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import * as Dialog from "@radix-ui/react-dialog";
 import { X } from "lucide-react";
@@ -24,10 +24,13 @@ export function SaveCaseDialog({
   const { t } = useTranslation();
   const [name, setName] = useState(defaultName);
 
-  const handleOpenChange = (open: boolean) => {
+  // Radix only calls onOpenChange when the dialog itself opens/closes; the
+  // parent sets `open` directly, so reset here every time it becomes visible.
+  useEffect(() => {
     if (open) setName(defaultName);
-    onOpenChange(open);
-  };
+  }, [open, defaultName]);
+
+  const handleOpenChange = (open: boolean) => onOpenChange(open);
 
   const canSave = name.trim().length > 0;
 
