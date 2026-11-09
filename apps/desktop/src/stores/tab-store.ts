@@ -871,6 +871,32 @@ export const useTabStore = create<TabState>((set, get) => ({
       clientCertPassphrase: settings.clientCertPassphrase ?? undefined,
     };
 
+    // Full editor snapshot for history. The HTTP layer intentionally sends an
+    // empty params array (params are already in the URL), so the complete
+    // params table has to be recorded separately or history loses it.
+    const historyRequest = JSON.stringify({
+      method: requestParams.method,
+      url: tab.url,
+      protocol: tab.protocol,
+      headers: tab.headers,
+      params: tab.params,
+      pathVariables: tab.pathVariables,
+      body: requestParams.body ?? tab.body,
+      auth: tab.auth,
+      graphql: tab.graphql
+        ? {
+            query: tab.graphql.query,
+            variables: tab.graphql.variables,
+            operationName: tab.graphql.operationName,
+            schemaJson: null,
+          }
+        : null,
+      preRequestScript: tab.preRequestScript,
+      postResponseScript: tab.postResponseScript,
+      testScript: tab.testScript,
+      assertions: tab.assertions,
+    });
+
     const hasScripts = tab.preRequestScript || tab.postResponseScript || tab.testScript || tab.assertions;
 
     try {
@@ -884,6 +910,7 @@ export const useTabStore = create<TabState>((set, get) => ({
           tab.postResponseScript,
           tab.testScript,
           tab.assertions,
+          historyRequest,
         );
         // Apply env mutations to the environment store
         if (scriptedResponse.envMutations && Object.keys(scriptedResponse.envMutations).length > 0) {
@@ -926,6 +953,7 @@ export const useTabStore = create<TabState>((set, get) => ({
           variables,
           tab.collectionPath ?? undefined,
           tab.name !== "Untitled Request" ? tab.name : undefined,
+          historyRequest,
         );
         set({
           tabs: get().tabs.map((t) =>

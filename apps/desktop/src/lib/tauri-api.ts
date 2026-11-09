@@ -76,6 +76,7 @@ export async function sendRequest(
   variables?: Record<string, string>,
   collectionPath?: string,
   requestName?: string,
+  historyRequest?: string | null,
 ): Promise<ResponseData> {
   try {
     return await invoke<ResponseData>("send_request", {
@@ -83,6 +84,7 @@ export async function sendRequest(
       variables: variables ?? null,
       collectionPath: collectionPath ?? null,
       requestName: requestName ?? null,
+      historyRequest: historyRequest ?? null,
     });
   } catch (err) {
     handleTauriError(err);
@@ -98,6 +100,7 @@ export async function sendRequestWithScripts(
   postResponseScript?: string | null,
   testScript?: string | null,
   assertionsYaml?: string | null,
+  historyRequest?: string | null,
 ): Promise<ScriptedResponseData> {
   try {
     return await invoke<ScriptedResponseData>("send_request_with_scripts", {
@@ -109,6 +112,7 @@ export async function sendRequestWithScripts(
       postResponseScript: postResponseScript ?? null,
       testScript: testScript ?? null,
       assertionsYaml: assertionsYaml ?? null,
+      historyRequest: historyRequest ?? null,
     });
   } catch (err) {
     handleTauriError(err);

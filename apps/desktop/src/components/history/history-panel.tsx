@@ -1,6 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import type { HttpMethod } from "@apiark/types";
+import type {
+  AuthConfig,
+  HistoryEntry,
+  HistoryRequestSnapshot,
+  HttpMethod,
+  KeyValuePair,
+  RequestBody,
+  ResponseData,
+  TabProtocol,
+} from "@apiark/types";
 import { useHistoryStore } from "@/stores/history-store";
 import { useTabStore } from "@/stores/tab-store";
 import { Search, Trash2 } from "lucide-react";
@@ -38,6 +47,94 @@ function timeAgo(timestamp: string): string {
 
 const ROW_HEIGHT = 32;
 
+const emptyRow = (): KeyValuePair => ({
+  id: crypto.randomUUID(),
+  key: "",
+  value: "",
+  enabled: true,
+});
+
+/** Normalize key/value rows persisted in history (may be missing ids/flags). */
+function toRows(value: unknown, trailingEmptyRow = false): KeyValuePair[] {
+  const rows: KeyValuePair[] = Array.isArray(value)
+    ? value
+        .filter(
+          (row): row is KeyValuePair =>
+            !!row &&
+            typeof row === "object" &&
+            typeof (row as KeyValuePair).key === "string" &&
+            typeof (row as KeyValuePair).value === "string",
+        )
+        .map((row) => ({
+          id: row.id || crypto.randomUUID(),
+          key: row.key,
+          value: row.value,
+          enabled: row.enabled !== false,
+          valueType: row.valueType === "file" ? "file" : undefined,
+        }))
+    : [];
+  const last = rows[rows.length - 1];
+  if (trailingEmptyRow && (!last || last.key.trim() || last.value.trim())) {
+    rows.push(emptyRow());
+  }
+  return rows;
+}
+
+/** Legacy entries only stored the URL, so recover query params from it. */
+function paramsFromUrl(url: string): KeyValuePair[] {
+  const qIndex = url.indexOf("?");
+  if (qIndex === -1) return toRows([], true);
+  const rows: KeyValuePair[] = [];
+  for (const [key, value] of new URLSearchParams(url.slice(qIndex + 1))) {
+    rows.push({ id: crypto.randomUUID(), key, value, enabled: true });
+  }
+  return toRows(rows, true);
+}
+
+function normalizeBody(value: unknown): RequestBody {
+  if (!value || typeof value !== "object") {
+    return { type: "none", content: "", formData: [] };
+  }
+  const body = value as Partial<RequestBody>;
+  return {
+    type: (body.type ?? "none") as RequestBody["type"],
+    content: typeof body.content === "string" ? body.content : "",
+    formData: Array.isArray(body.formData)
+      ? body.formData.map((row) => ({ ...row, id: row.id || crypto.randomUUID() }))
+      : [],
+  };
+}
+
+function parseHistoryRequest(raw: string): HistoryRequestSnapshot | null {
+  try {
+    const value: unknown = JSON.parse(raw);
+    return value && typeof value === "object" ? (value as HistoryRequestSnapshot) : null;
+  } catch {
+    return null;
+  }
+}
+
+function parseHistoryResponse(raw: string | null | undefined): ResponseData | null {
+  if (!raw) return null;
+  try {
+    const value = JSON.parse(raw) as Partial<ResponseData>;
+    if (!value || typeof value !== "object" || typeof value.status !== "number") return null;
+    return {
+      status: value.status,
+      statusText: value.statusText ?? "",
+      headers: toRows(value.headers),
+      cookies: Array.isArray(value.cookies) ? value.cookies : [],
+      body: typeof value.body === "string" ? value.body : "",
+      timeMs: value.timeMs ?? 0,
+      sizeBytes: value.sizeBytes ?? 0,
+      truncated: value.truncated,
+      fullSize: value.fullSize,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export function HistoryPanel() {
   const { t } = useTranslation();
   const { entries, loading, loadHistory, searchHistory, clearHistory } =
@@ -58,13 +155,60 @@ export function HistoryPanel() {
     }
   };
 
-  const handleRestore = (entry: typeof entries[0]) => {
-    const { setMethod, setUrl } = useTabStore.getState();
+  const handleRestore = (entry: HistoryEntry) => {
+    const snapshot = parseHistoryRequest(entry.requestJson);
+    const response = parseHistoryResponse(entry.responseJson);
+    const protocol: TabProtocol = snapshot?.protocol === "graphql" ? "graphql" : "http";
+    const graphql = snapshot?.graphql
+      ? {
+          query: snapshot.graphql.query ?? "",
+          variables: snapshot.graphql.variables ?? "{}",
+          operationName: snapshot.graphql.operationName ?? "",
+          schemaJson: null,
+        }
+      : null;
+
     useTabStore.getState().newTab();
-    setTimeout(() => {
-      setMethod(entry.method as HttpMethod);
-      setUrl(entry.url);
-    }, 0);
+    const tabId = useTabStore.getState().activeTabId;
+    if (!tabId) return;
+
+    // Restore the whole request (headers, params, body, scripts) and the saved
+    // response, not just method + URL.
+    useTabStore.setState((state) => ({
+      tabs: state.tabs.map((tab) =>
+        tab.id === tabId
+          ? {
+              ...tab,
+              name: entry.requestName || "History Request",
+              protocol,
+              graphql,
+              method: (snapshot?.method ?? entry.method) as HttpMethod,
+              url: snapshot?.url || entry.url,
+              headers: toRows(snapshot?.headers, true),
+              params: snapshot?.params?.length
+                ? toRows(snapshot.params, true)
+                : paramsFromUrl(snapshot?.url || entry.url),
+              pathVariables: snapshot?.pathVariables ?? {},
+              body: normalizeBody(snapshot?.body),
+              auth: (snapshot?.auth ?? { type: "none" }) as AuthConfig,
+              preRequestScript: snapshot?.preRequestScript ?? null,
+              postResponseScript: snapshot?.postResponseScript ?? null,
+              testScript: snapshot?.testScript ?? null,
+              assertions: snapshot?.assertions ?? null,
+              response,
+              error: null,
+              loading: false,
+              testResults: [],
+              assertionResults: [],
+              consoleOutput: [],
+              isDirty: false,
+              conflictState: null,
+              undoStack: [],
+              redoStack: [],
+            }
+          : tab,
+      ),
+    }));
   };
 
   const virtualizer = useVirtualizer({

@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 use tauri::State;
@@ -52,6 +51,7 @@ pub struct ScriptedResponseData {
     pub env_mutations: HashMap<String, Option<String>>,
 }
 
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub async fn send_request(
     state: State<'_, AppState>,
@@ -62,6 +62,7 @@ pub async fn send_request(
     variables: Option<HashMap<String, String>>,
     collection_path: Option<String>,
     request_name: Option<String>,
+    history_request: Option<String>,
 ) -> Result<ResponseData, String> {
     let vars = variables.unwrap_or_default();
     let mut interpolated = interpolate_params(&params, &vars);
@@ -160,6 +161,7 @@ pub async fn send_request(
         &state,
         &interpolated,
         &params,
+        history_request,
         &result,
         collection_path,
         request_name,
@@ -186,6 +188,7 @@ pub async fn send_request_with_scripts(
     post_response_script: Option<String>,
     test_script: Option<String>,
     assertions_yaml: Option<String>,
+    history_request: Option<String>,
 ) -> Result<ScriptedResponseData, String> {
     let mut vars = variables.unwrap_or_default();
     let mut interpolated = interpolate_params(&params, &vars);
@@ -289,6 +292,7 @@ pub async fn send_request_with_scripts(
         &state,
         &interpolated,
         &params,
+        history_request,
         &Ok(response.clone()),
         collection_path,
         request_name,
@@ -516,56 +520,58 @@ fn record_history(
     state: &State<'_, AppState>,
     interpolated: &SendRequestParams,
     original_params: &SendRequestParams,
+    history_request: Option<String>,
     result: &Result<ResponseData, crate::models::error::HttpEngineError>,
     collection_path: Option<String>,
     request_name: Option<String>,
 ) {
-    let history_db = Arc::clone(&state.history_db);
     let method_str = format!("{:?}", interpolated.method);
     let url_str = interpolated.url.clone();
-    let request_json = redact_secrets(&serde_json::to_string(original_params).unwrap_or_default());
 
-    match result {
+    // The UI sends a full editor snapshot (headers, the complete params table,
+    // body, scripts...). Fall back to the raw IPC params for other callers.
+    let raw_request_json = history_request
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| serde_json::to_string(original_params).unwrap_or_default());
+    let request_json = redact_secrets(&raw_request_json);
+
+    let (status, status_text, time_ms, size_bytes, response_json) = match result {
         Ok(response) => {
-            let entry = HistoryEntry {
-                id: 0,
-                method: method_str,
-                url: url_str,
-                status: Some(response.status as i32),
-                status_text: Some(response.status_text.clone()),
-                time_ms: Some(response.time_ms as i64),
-                size_bytes: Some(response.size_bytes as i64),
-                timestamp: chrono::Utc::now().to_rfc3339(),
-                collection_path,
-                request_name,
-                request_json,
-            };
-            tokio::spawn(async move {
-                if let Err(e) = history_db.insert(&entry) {
-                    tracing::warn!("Failed to record history: {e}");
-                }
-            });
+            let mut stored = response.clone();
+            // tempPath references a temp file that may be gone when the entry
+            // is reopened; the (possibly truncated) body is stored inline.
+            stored.temp_path = None;
+            let response_json = serde_json::to_string(&stored)
+                .map(|json| redact_secrets(&json))
+                .ok();
+            (
+                Some(response.status as i32),
+                Some(response.status_text.clone()),
+                Some(response.time_ms as i64),
+                Some(response.size_bytes as i64),
+                response_json,
+            )
         }
-        Err(_) => {
-            let entry = HistoryEntry {
-                id: 0,
-                method: method_str,
-                url: url_str,
-                status: None,
-                status_text: None,
-                time_ms: None,
-                size_bytes: None,
-                timestamp: chrono::Utc::now().to_rfc3339(),
-                collection_path,
-                request_name,
-                request_json,
-            };
-            tokio::spawn(async move {
-                if let Err(e) = history_db.insert(&entry) {
-                    tracing::warn!("Failed to record history: {e}");
-                }
-            });
-        }
+        Err(_) => (None, None, None, None, None),
+    };
+
+    let entry = HistoryEntry {
+        id: 0,
+        method: method_str,
+        url: url_str,
+        status,
+        status_text,
+        time_ms,
+        size_bytes,
+        timestamp: chrono::Utc::now().to_rfc3339(),
+        collection_path,
+        request_name,
+        request_json,
+        response_json,
+    };
+
+    if let Err(e) = state.history_db.insert(&entry) {
+        tracing::warn!("Failed to record history: {e}");
     }
 }
 
@@ -918,5 +924,46 @@ fn run_plugin_hooks(
                 });
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod history_tests {
+    use super::*;
+
+    #[test]
+    fn redaction_keeps_headers_params_and_response_body() {
+        let snapshot = serde_json::json!({
+            "method": "GET",
+            "url": "https://example.com?a=1",
+            "headers": [{ "id": "h1", "key": "X-Api-Key", "value": "abc", "enabled": true }],
+            "params": [{ "id": "p1", "key": "a", "value": "1", "enabled": true }],
+            "body": { "type": "json", "content": "{}", "formData": [] },
+            "auth": { "type": "bearer", "token": "super-secret" },
+        })
+        .to_string();
+
+        let value: serde_json::Value =
+            serde_json::from_str(&redact_secrets(&snapshot)).unwrap();
+        assert_eq!(value["headers"][0]["key"], "X-Api-Key");
+        assert_eq!(value["headers"][0]["value"], "abc");
+        assert_eq!(value["params"][0]["value"], "1");
+        assert_eq!(value["body"]["content"], "{}");
+        assert_eq!(value["auth"]["token"], "[REDACTED]");
+
+        let response = serde_json::json!({
+            "status": 200,
+            "statusText": "OK",
+            "headers": [{ "key": "content-type", "value": "application/json" }],
+            "cookies": [],
+            "body": "{\"ok\":true}",
+            "timeMs": 12,
+            "sizeBytes": 11,
+        })
+        .to_string();
+        let stored: serde_json::Value =
+            serde_json::from_str(&redact_secrets(&response)).unwrap();
+        assert_eq!(stored["body"], "{\"ok\":true}");
+        assert_eq!(stored["headers"][0]["value"], "application/json");
     }
 }

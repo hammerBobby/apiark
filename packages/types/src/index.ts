@@ -295,6 +295,25 @@ export interface HistoryEntry {
   collectionPath?: string;
   requestName?: string;
   requestJson: string;
+  /** Full response snapshot (null for failed requests / legacy entries). */
+  responseJson?: string | null;
+}
+
+/** Full editor snapshot stored in `HistoryEntry.requestJson`. */
+export interface HistoryRequestSnapshot {
+  method?: string;
+  url?: string;
+  protocol?: string;
+  headers?: KeyValuePair[];
+  params?: KeyValuePair[];
+  pathVariables?: Record<string, string>;
+  body?: RequestBody;
+  auth?: AuthConfig;
+  graphql?: GraphQLState | null;
+  preRequestScript?: string | null;
+  postResponseScript?: string | null;
+  testScript?: string | null;
+  assertions?: string | null;
 }
 
 // ── Parsed cURL ──
