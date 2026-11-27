@@ -3,6 +3,7 @@
 //! This crate is an in-progress migration from Tauri. Some state/models/theme
 //! definitions are scaffolding for features wired up in later migration phases.
 #![allow(dead_code)]
+#![cfg_attr(windows, windows_subsystem = "windows")]
 
 mod app;
 mod models;
