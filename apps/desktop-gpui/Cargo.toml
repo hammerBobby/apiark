@@ -1,6 +1,6 @@
 [package]
 name = "apiark-gpui"
-version = "0.5.0"
+version = "1.0.0"
 description = "ApiArk desktop application built with GPUI (native Rust UI)"
 authors = ["ApiArk Contributors"]
 edition = "2021"
