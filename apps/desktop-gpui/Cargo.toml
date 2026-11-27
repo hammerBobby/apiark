@@ -1,0 +1,98 @@
+[package]
+name = "apiark-gpui"
+version = "0.5.0"
+description = "ApiArk desktop application built with GPUI (native Rust UI)"
+authors = ["ApiArk Contributors"]
+edition = "2021"
+
+[dependencies]
+# GPUI - native GPU-accelerated UI framework (via gpui-kit stable wrapper)
+gpui-kit = { version = "0.10", features = ["tree-sitter"] }
+
+# Async runtime
+tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "sync", "time", "io-util", "net", "fs"] }
+futures-util = "0.3"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+
+# HTTP / networking
+reqwest = { version = "0.12", features = ["json", "cookies", "rustls-tls", "multipart", "stream"] }
+url = "2"
+tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
+
+# Utilities
+thiserror = "2"
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-appender = "0.2"
+uuid = { version = "1", features = ["v4"] }
+chrono = "0.4"
+regex = "1"
+rand = "0.8"
+dirs = "5"
+csv = "1"
+bytes = "1"
+walkdir = "2"
+time = "0.3"
+
+# Storage
+rusqlite = { version = "0.31", features = ["bundled"] }
+
+# Scripting
+rquickjs = { version = "0.9", features = ["parallel", "loader"] }
+
+# Local mock server
+axum = "0.7"
+
+# Auth / crypto
+sha2 = { version = "0.10", features = ["oid"] }
+base64 = "0.22"
+urlencoding = "2"
+hmac = "0.12"
+md-5 = "0.10"
+jsonwebtoken = "9"
+rsa = "0.9"
+hex = "0.4"
+rcgen = "0.13"
+md4 = "0.10"
+des = "0.8"
+
+# gRPC
+tonic = { version = "0.12", features = ["transport", "tls"] }
+prost = "0.13"
+prost-types = "0.13"
+prost-reflect = { version = "0.14", features = ["serde"] }
+protox = "0.7"
+hyper-util = "0.1"
+http-body = "1"
+tower = "0.5"
+
+# MQTT
+rumqttc = "0.24"
+
+# Native file dialogs (replaces @tauri-apps/plugin-dialog)
+rfd = "0.15"
+
+# File watching
+notify = { version = "7", features = ["macos_fsevent"] }
+notify-debouncer-mini = "0.5"
+
+# Scheduling
+cron = "0.15"
+
+# Import / export
+zip = { version = "2", default-features = false, features = ["deflate"] }
+
+# Terminal (PTY)
+portable-pty = "0.8"
+
+[target.'cfg(windows)'.build-dependencies]
+winres = "0.1"
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+tempfile = "3"

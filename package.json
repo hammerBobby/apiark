@@ -8,7 +8,10 @@
     "build": "pnpm --filter @apiark/desktop build",
     "tauri": "pnpm --filter @apiark/desktop tauri",
     "lint": "pnpm --filter @apiark/desktop lint",
-    "preview": "pnpm --filter @apiark/desktop preview"
+    "preview": "pnpm --filter @apiark/desktop preview",
+    "gpui:dev": "cargo run --manifest-path apps/desktop-gpui/Cargo.toml",
+    "gpui:build": "cargo build --release --manifest-path apps/desktop-gpui/Cargo.toml",
+    "gpui:check": "cargo check --manifest-path apps/desktop-gpui/Cargo.toml"
   },
   "engines": {
     "node": ">=22.0.0",
