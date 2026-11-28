@@ -358,6 +358,16 @@ impl Default for TabProtocol {
     }
 }
 
+// ── Realtime (WebSocket / SSE) ────────────────────────────────────────────
+
+/// One line in the WebSocket / SSE message log.
+#[derive(Debug, Clone)]
+pub struct RealtimeMessage {
+    pub direction: String,
+    pub text: String,
+    pub timestamp: String,
+}
+
 // ── Tab ────────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -910,6 +920,7 @@ pub enum ResponseView {
     Timing,
     Console,
     Code,
+    Live,
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────────

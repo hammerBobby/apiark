@@ -105,6 +105,45 @@ impl UrlBar {
         }
     }
 
+    /// Connect/disconnect a WebSocket or SSE session for the active tab.
+    fn toggle_realtime(&mut self, cx: &mut Context<Self>) {
+        let (id, protocol) = {
+            let tabs = self.tabs.read(cx);
+            match tabs.active_tab() {
+                Some(tab) => (tab.id.clone(), tab.protocol),
+                None => return,
+            }
+        };
+        if !matches!(
+            protocol,
+            crate::models::TabProtocol::WebSocket | crate::models::TabProtocol::Sse
+        ) {
+            return;
+        }
+        let connected = self
+            .app_state
+            .read(cx)
+            .realtime
+            .lock()
+            .map(|m| m.is_connected(&id))
+            .unwrap_or(false);
+        if connected {
+            self.app_state.update(cx, |s, cx| s.realtime_disconnect(&id, cx));
+            return;
+        }
+        let url = self.url_input.read(cx).value().to_string();
+        let headers = self
+            .tabs
+            .read(cx)
+            .active_tab()
+            .map(|t| t.headers.clone())
+            .unwrap_or_default();
+        let is_ws = protocol == crate::models::TabProtocol::WebSocket;
+        self.app_state.update(cx, |s, cx| {
+            s.realtime_connect(id, url, headers, is_ws, cx);
+        });
+    }
+
     pub fn copy_as_curl(&mut self, cx: &mut App) {
         let Some(tab) = self.tabs.read(cx).active_tab().cloned() else {
             return;
@@ -449,12 +488,29 @@ impl Render for UrlBar {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.sync_input(window, cx);
 
-        let (method, loading) = self
+        let (method, loading, protocol) = self
             .tabs
             .read(cx)
             .active_tab()
-            .map(|t| (t.method, t.loading))
+            .map(|t| (t.method, t.loading, t.protocol))
             .unwrap_or_default();
+        let is_realtime = matches!(
+            protocol,
+            crate::models::TabProtocol::WebSocket | crate::models::TabProtocol::Sse
+        );
+        let realtime_connected = self
+            .tabs
+            .read(cx)
+            .active_tab()
+            .and_then(|tab| {
+                self.app_state
+                    .read(cx)
+                    .realtime
+                    .lock()
+                    .ok()
+                    .map(|m| m.is_connected(&tab.id))
+            })
+            .unwrap_or(false);
         let method_color = match method {
             HttpMethod::Get => theme::method::get(),
             HttpMethod::Post => theme::method::post(),
@@ -513,13 +569,42 @@ impl Render for UrlBar {
             .border_b_1()
             .border_color(theme::border())
             .child(method_select)
+            .when(is_realtime, |el| {
+                let label = match protocol {
+                    crate::models::TabProtocol::WebSocket => "WS",
+                    crate::models::TabProtocol::Sse => "SSE",
+                    _ => "",
+                };
+                el.child(
+                    div()
+                        .id("protocol-badge")
+                        .px_2()
+                        .py_1()
+                        .rounded_lg()
+                        .bg(theme::accent())
+                        .text_xs()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(white())
+                        .child(SharedString::from(label)),
+                )
+            })
             .child(div().flex_1().child(Input::new(&self.url_input)))
             .child(
                 div()
                     .flex()
                     .items_center()
                     .gap_2()
-                    .child(if loading {
+                    .child(if is_realtime {
+                        Button::new("realtime-connect-button")
+                            .primary()
+                            .text_sm()
+                            .label(if realtime_connected { "Disconnect" } else { "Connect" })
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                cx.stop_propagation();
+                                this.toggle_realtime(cx);
+                            }))
+                            .into_any_element()
+                    } else if loading {
                         div()
                             .id("cancel-request-button")
                             .px_3()

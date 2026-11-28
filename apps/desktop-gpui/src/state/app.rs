@@ -3,12 +3,15 @@
 use gpui_kit::*;
 use std::collections::HashSet;
 use std::path::Path;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::models::{
     ActivityView, CollectionNode, ConsoleEntry, ConsoleLevel, DiffSnapshot, DiffView,
-    EnvironmentFile, HistoryEntry, KeyValuePair, ResponseView, RunnerResult, TrashItem,
+    EnvironmentFile, HistoryEntry, KeyValuePair, RealtimeMessage, ResponseView, RunnerResult,
+    TrashItem,
 };
+use crate::services::realtime::RealtimeManager;
 
 /// Application-wide UI state that isn't tied to a specific view.
 pub struct AppState {
@@ -46,6 +49,11 @@ pub struct AppState {
     pub diff_view: DiffView,
     pub console_entries: Vec<ConsoleEntry>,
     pub trash_items: Vec<TrashItem>,
+
+    // ── Real-time protocols (WebSocket / SSE) ──
+    pub realtime: Arc<Mutex<RealtimeManager>>,
+    pub realtime_messages: Vec<RealtimeMessage>,
+    pub realtime_status: Option<String>,
 
     pub command_palette_open: bool,
     pub show_onboarding: bool,
@@ -245,6 +253,9 @@ impl Default for AppState {
             diff_view: DiffView::Body,
             console_entries: Vec::new(),
             trash_items: Vec::new(),
+            realtime: Arc::new(Mutex::new(RealtimeManager::new())),
+            realtime_messages: Vec::new(),
+            realtime_status: None,
             command_palette_open: false,
             show_onboarding: true,
             dark_mode: false,
@@ -296,6 +307,115 @@ impl AppState {
     pub fn clear_console(&mut self, cx: &mut Context<Self>) {
         self.console_entries.clear();
         cx.notify();
+    }
+
+    // ── Real-time protocols ────────────────────────────────────────────────
+
+    pub fn realtime_connect(
+        &mut self,
+        id: String,
+        url: String,
+        headers: Vec<KeyValuePair>,
+        is_ws: bool,
+        cx: &mut Context<Self>,
+    ) {
+        let result = if let Ok(manager) = self.realtime.lock() {
+            if is_ws {
+                manager.ws_connect(id, url.clone(), headers)
+            } else {
+                manager.sse_connect(id, url.clone(), headers)
+            }
+        } else {
+            Err("Realtime manager lock poisoned".to_string())
+        };
+        match result {
+            Ok(()) => {
+                self.realtime_status = Some("Connecting...".to_string());
+                self.push_realtime_message("system", format!("Connecting to {url}"));
+            }
+            Err(e) => {
+                self.realtime_status = Some(format!("Error: {e}"));
+                self.push_realtime_message("error", e);
+            }
+        }
+        cx.notify();
+    }
+
+    pub fn realtime_disconnect(&mut self, id: &str, cx: &mut Context<Self>) {
+        if let Ok(manager) = self.realtime.lock() {
+            manager.disconnect(id).ok();
+        }
+        self.realtime_status = Some("Disconnected".to_string());
+        self.push_realtime_message("system", "Disconnected");
+        cx.notify();
+    }
+
+    pub fn realtime_send(&mut self, id: &str, text: String, cx: &mut Context<Self>) {
+        let result = if let Ok(manager) = self.realtime.lock() {
+            manager.send(id, text)
+        } else {
+            Err("Realtime manager lock poisoned".to_string())
+        };
+        if let Err(e) = result {
+            self.push_realtime_message("error", format!("Send failed: {e}"));
+        }
+        cx.notify();
+    }
+
+    pub fn clear_realtime_messages(&mut self, cx: &mut Context<Self>) {
+        self.realtime_messages.clear();
+        cx.notify();
+    }
+
+    /// Drain events produced by the background protocol tasks. Called on a timer.
+    pub fn poll_realtime(&mut self, cx: &mut Context<Self>) {
+        use crate::services::realtime::RealtimeEventKind;
+        let events = if let Ok(mut manager) = self.realtime.lock() {
+            manager.try_recv()
+        } else {
+            Vec::new()
+        };
+        if events.is_empty() {
+            return;
+        }
+        for event in events {
+            match event.kind {
+                RealtimeEventKind::Status { state, error } => {
+                    self.realtime_status = Some(match error {
+                        Some(e) => format!("{state}: {e}"),
+                        None => state.to_string(),
+                    });
+                }
+                RealtimeEventKind::WsText { text, direction } => {
+                    self.push_realtime_message(direction, text);
+                }
+                RealtimeEventKind::WsBinary { size, direction } => {
+                    self.push_realtime_message(direction, format!("[Binary: {size} bytes]"));
+                }
+                RealtimeEventKind::Sse { data, event, id } => {
+                    let label = match (event, id) {
+                        (Some(e), Some(i)) => format!("{e} (id: {i})"),
+                        (Some(e), None) => e,
+                        (None, Some(i)) => format!("id: {i}"),
+                        (None, None) => "message".to_string(),
+                    };
+                    self.push_realtime_message(&label, data);
+                }
+            }
+        }
+        cx.notify();
+    }
+
+    fn push_realtime_message(&mut self, direction: &str, text: impl Into<String>) {
+        self.realtime_messages.push(RealtimeMessage {
+            direction: direction.to_string(),
+            text: text.into(),
+            timestamp: chrono::Local::now().format("%H:%M:%S").to_string(),
+        });
+        if self.realtime_messages.len() > 500 {
+            let excess = self.realtime_messages.len() - 500;
+            self.realtime_messages.drain(0..excess);
+        }
     }
 
     pub fn toggle_zen_mode(&mut self, cx: &mut Context<Self>) {

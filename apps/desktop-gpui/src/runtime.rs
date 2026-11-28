@@ -30,6 +30,15 @@ fn handle() -> tokio::runtime::Handle {
         .clone()
 }
 
+/// Spawn a long-running background task (e.g. a WebSocket/SSE connection)
+/// that runs until it is cancelled. Unlike `run_on_tokio`, no result is awaited.
+pub fn handle_spawn<F>(future: F)
+where
+    F: std::future::Future<Output = ()> + Send + 'static,
+{
+    handle().spawn(future);
+}
+
 /// Run a future on the Tokio runtime and await its result from a GPUI task.
 ///
 /// `F` must be `Send + 'static` (it runs on a Tokio worker thread) and `T`

@@ -247,6 +247,35 @@ impl TabsState {
         id
     }
 
+    /// Create a tab for a specific protocol (WebSocket, SSE, ...).
+    pub fn new_tab_with_protocol(
+        &mut self,
+        protocol: crate::models::TabProtocol,
+        cx: &mut Context<Self>,
+    ) -> String {
+        self.next_tab_index += 1;
+        let label = match protocol {
+            crate::models::TabProtocol::WebSocket => "WebSocket",
+            crate::models::TabProtocol::Sse => "SSE",
+            crate::models::TabProtocol::Grpc => "gRPC",
+            crate::models::TabProtocol::GraphQL => "GraphQL",
+            crate::models::TabProtocol::Mqtt => "MQTT",
+            crate::models::TabProtocol::SocketIo => "Socket.IO",
+            crate::models::TabProtocol::Http => "Request",
+        };
+        let tab = Tab {
+            name: format!("Untitled {} {}", label, self.next_tab_index),
+            protocol,
+            ..Default::default()
+        };
+        let id = tab.id.clone();
+        self.tabs.push(tab);
+        self.active_tab_id = Some(id.clone());
+        self.save();
+        cx.notify();
+        id
+    }
+
     pub fn close_tab(&mut self, id: &str, cx: &mut Context<Self>) {
         if let Some(pos) = self.tabs.iter().position(|t| t.id == id) {
             self.tabs.remove(pos);

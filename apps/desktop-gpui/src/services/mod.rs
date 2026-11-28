@@ -7,6 +7,7 @@ pub mod history;
 pub mod import_export;
 pub mod http;
 pub mod oauth;
+pub mod realtime;
 pub mod runner;
 pub mod script;
 pub mod trash;

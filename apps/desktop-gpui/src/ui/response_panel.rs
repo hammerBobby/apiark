@@ -11,6 +11,7 @@ pub struct ResponsePanel {
     app_state: Entity<AppState>,
     body_editor: Entity<EditorState>,
     search_input: Entity<InputState>,
+    live_input: Entity<InputState>,
     pretty: bool,
     last_body_key: Option<(String, u64, bool)>,
     _subscriptions: Vec<Subscription>,
@@ -29,6 +30,7 @@ impl ResponsePanel {
             state
         });
         let search_input = cx.new(|cx| InputState::new(window, cx).placeholder("Search body"));
+        let live_input = cx.new(|cx| InputState::new(window, cx).placeholder("Message to send..."));
         let search_sub = cx.subscribe_in(
             &search_input,
             window,
@@ -44,6 +46,7 @@ impl ResponsePanel {
             app_state,
             body_editor,
             search_input,
+            live_input,
             pretty: true,
             last_body_key: None,
             _subscriptions: vec![search_sub],
@@ -94,6 +97,126 @@ impl ResponsePanel {
         self.last_body_key = None;
         cx.notify();
     }
+
+    /// Render the WebSocket / SSE message log with a send box for WS.
+    fn render_live(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        let messages = self.app_state.read(cx).realtime_messages.clone();
+        let status = self.app_state.read(cx).realtime_status.clone();
+        let tab_id = self
+            .tabs
+            .read(cx)
+            .active_tab()
+            .map(|tab| tab.id.clone())
+            .unwrap_or_default();
+        let is_ws = self
+            .tabs
+            .read(cx)
+            .active_tab()
+            .map(|tab| tab.protocol == crate::models::TabProtocol::WebSocket)
+            .unwrap_or(false);
+
+        let mut col = div()
+            .flex()
+            .flex_col()
+            .flex_1()
+            .min_h(px(0.0))
+            .p_3()
+            .gap_2();
+
+        if let Some(status) = status {
+            col = col.child(
+                div()
+                    .text_xs()
+                    .text_color(theme::text_muted())
+                    .child(SharedString::from(status)),
+            );
+        }
+
+        let mut list = div()
+            .flex()
+            .flex_col()
+            .flex_1()
+            .min_h(px(0.0))
+            .gap_1()
+            .overflow_scrollbar();
+        if messages.is_empty() {
+            list = list.child(
+                div()
+                    .text_sm()
+                    .text_color(theme::text_muted())
+                    .child(SharedString::from(
+                        "No messages yet. Connect to start streaming.",
+                    )),
+            );
+        }
+        for (idx, message) in messages.iter().rev().enumerate() {
+            let color = match message.direction.as_str() {
+                "sent" => theme::accent(),
+                "received" => theme::success(),
+                "error" => theme::error(),
+                _ => theme::text_muted(),
+            };
+            list = list.child(
+                div()
+                    .id(SharedString::from(format!("live-msg-{}", idx)))
+                    .flex()
+                    .gap_2()
+                    .text_xs()
+                    .font_family("monospace")
+                    .child(
+                        div()
+                            .w(px(64.0))
+                            .text_color(theme::text_muted())
+                            .child(SharedString::from(message.timestamp.clone())),
+                    )
+                    .child(
+                        div()
+                            .w(px(72.0))
+                            .text_color(color)
+                            .child(SharedString::from(message.direction.clone())),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .text_color(theme::text_primary())
+                            .child(SharedString::from(message.text.clone())),
+                    ),
+            );
+        }
+        col = col.child(list);
+
+        if is_ws {
+            let state = self.app_state.clone();
+            let id = tab_id.clone();
+            let input = self.live_input.clone();
+            col = col.child(
+                div()
+                    .flex()
+                    .gap_2()
+                    .items_center()
+                    .child(div().flex_1().child(Input::new(&input)))
+                    .child(
+                        Button::new("live-send-button")
+                            .text_sm()
+                            .label("Send")
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                cx.stop_propagation();
+                                let text = this.live_input.read(cx).value().to_string();
+                                if text.is_empty() {
+                                    return;
+                                }
+                                this.live_input.update(cx, |state, cx| {
+                                    state.set_value(String::new(), window, cx);
+                                });
+                                state.update(cx, |s, cx| s.realtime_send(&id, text, cx));
+                            })),
+                    ),
+            );
+        }
+
+        let _ = window;
+        col.into_any_element()
+    }
 }
 
 impl Render for ResponsePanel {
@@ -115,6 +238,7 @@ impl Render for ResponsePanel {
             crate::models::ResponseView::Timing,
             crate::models::ResponseView::Console,
             crate::models::ResponseView::Code,
+            crate::models::ResponseView::Live,
         ];
 
         let mut top_row = div()
@@ -137,6 +261,7 @@ impl Render for ResponsePanel {
                 crate::models::ResponseView::Timing => "Timing",
                 crate::models::ResponseView::Console => "Console",
                 crate::models::ResponseView::Code => "Code",
+                crate::models::ResponseView::Live => "Live",
             };
             let is_active = view == v;
             let state_clone = app_state.clone();
@@ -438,7 +563,9 @@ impl Render for ResponsePanel {
             .child(top_row)
             .child(sub_row);
 
-        let body_content: AnyElement = if let Some(ref resp) = response {
+        let body_content: AnyElement = if view == crate::models::ResponseView::Live {
+            self.render_live(window, cx)
+        } else if let Some(ref resp) = response {
             match view {
                 crate::models::ResponseView::Body => {
                     let mut body = div()
@@ -808,6 +935,7 @@ impl Render for ResponsePanel {
                     }
                     list.into_any_element()
                 }
+                crate::models::ResponseView::Live => self.render_live(window, cx),
             }
         } else if tab.as_ref().map(|t| t.loading).unwrap_or(false) {
             div()

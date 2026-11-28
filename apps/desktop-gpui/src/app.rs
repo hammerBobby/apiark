@@ -497,6 +497,22 @@ impl AppView {
                     s.new_tab(cx);
                 });
             }
+            "New WebSocket" => {
+                self.tabs.update(cx, |s, cx| {
+                    s.new_tab_with_protocol(crate::models::TabProtocol::WebSocket, cx);
+                });
+                self.app_state.update(cx, |s, cx| {
+                    s.set_response_view(crate::models::ResponseView::Live, cx);
+                });
+            }
+            "New SSE" => {
+                self.tabs.update(cx, |s, cx| {
+                    s.new_tab_with_protocol(crate::models::TabProtocol::Sse, cx);
+                });
+                self.app_state.update(cx, |s, cx| {
+                    s.set_response_view(crate::models::ResponseView::Live, cx);
+                });
+            }
             "Close Tab" => {
                 let id = self.tabs.read(cx).active_tab_id().map(|s| s.to_string());
                 if let Some(id) = id {
@@ -897,12 +913,15 @@ impl Render for AppView {
         self.sync_overlay_inputs(window, cx);
 
         if Instant::now() >= self.next_watch_check {
-            self.next_watch_check = Instant::now() + std::time::Duration::from_millis(800);
+            self.next_watch_check = Instant::now() + std::time::Duration::from_millis(200);
             if self.workspace.read(cx).take_reload_events() {
                 let ws = self.workspace.clone();
                 let state = self.app_state.clone();
                 ws.update(cx, |ws, cx| ws.reload_workspace_data(&state, cx));
             }
+            // Drain WebSocket / SSE events produced by background Tokio tasks.
+            let state = self.app_state.clone();
+            state.update(cx, |s, cx| s.poll_realtime(cx));
         }
 
         let zen_mode = self.app_state.read(cx).zen_mode;
@@ -4345,6 +4364,8 @@ impl Render for AppView {
             let query = self.command_palette_input.read(cx).value().to_string();
             let commands = [
                 ("New Tab", "Create a new request tab"),
+                ("New WebSocket", "Open a WebSocket connection tab"),
+                ("New SSE", "Open an SSE stream tab"),
                 ("Close Tab", "Close the active request tab"),
                 ("Save Request", "Save or save-as the active request"),
                 ("Toggle Zen Mode", "Show or hide panels"),
