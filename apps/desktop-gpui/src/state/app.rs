@@ -240,7 +240,7 @@ impl Default for AppState {
             history_entries: Vec::new(),
             history_query: String::new(),
             history_limit: 100,
-            cookie_jar: Vec::new(),
+            cookie_jar: crate::services::cookies::load(),
             timeout_ms: 30000,
             verify_ssl: true,
             follow_redirects: true,
@@ -467,16 +467,19 @@ impl AppState {
             self.cookie_jar.retain(|item| item.key != cookie.key);
             self.cookie_jar.push(cookie);
         }
+        crate::services::cookies::save(self.cookie_jar.clone());
         cx.notify();
     }
 
     pub fn remove_cookie(&mut self, key: &str, cx: &mut Context<Self>) {
         self.cookie_jar.retain(|item| item.key != key);
+        crate::services::cookies::save(self.cookie_jar.clone());
         cx.notify();
     }
 
     pub fn clear_cookies(&mut self, cx: &mut Context<Self>) {
         self.cookie_jar.clear();
+        crate::services::cookies::save(Vec::new());
         cx.notify();
     }
 

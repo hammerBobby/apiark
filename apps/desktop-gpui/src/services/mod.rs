@@ -1,5 +1,6 @@
 pub mod backup;
 pub mod collection;
+pub mod cookies;
 pub mod curl;
 pub mod diff;
 pub mod environment;

@@ -111,6 +111,7 @@ pub struct AppView {
     case_name_input: Entity<InputState>,
     runner_data_input: Entity<InputState>,
     next_watch_check: Instant,
+    next_realtime_check: Instant,
     synced_overlay: OverlaySyncKey,
 }
 
@@ -244,6 +245,7 @@ impl AppView {
             case_name_input,
             runner_data_input,
             next_watch_check: Instant::now(),
+            next_realtime_check: Instant::now(),
             synced_overlay: OverlaySyncKey::None,
         });
         view
@@ -913,13 +915,16 @@ impl Render for AppView {
         self.sync_overlay_inputs(window, cx);
 
         if Instant::now() >= self.next_watch_check {
-            self.next_watch_check = Instant::now() + std::time::Duration::from_millis(200);
+            self.next_watch_check = Instant::now() + std::time::Duration::from_millis(800);
             if self.workspace.read(cx).take_reload_events() {
                 let ws = self.workspace.clone();
                 let state = self.app_state.clone();
                 ws.update(cx, |ws, cx| ws.reload_workspace_data(&state, cx));
             }
-            // Drain WebSocket / SSE events produced by background Tokio tasks.
+        }
+        // Drain WebSocket / SSE events more frequently than workspace rescans.
+        if Instant::now() >= self.next_realtime_check {
+            self.next_realtime_check = Instant::now() + std::time::Duration::from_millis(100);
             let state = self.app_state.clone();
             state.update(cx, |s, cx| s.poll_realtime(cx));
         }
