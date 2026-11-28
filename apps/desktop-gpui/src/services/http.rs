@@ -6,6 +6,7 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::{Mutex, OnceLock};
 use std::time::Instant;
 
 use futures_util::StreamExt;
@@ -13,6 +14,12 @@ use futures_util::StreamExt;
 use crate::models::{AuthConfig, HttpMethod, KeyValuePair, RequestBody, ResponseData};
 
 const MAX_RESPONSE_PREVIEW: usize = 256 * 1024;
+
+/// Convert bytes into a String without an extra allocation on the common
+/// (valid UTF-8) path; only fall back to lossy conversion for invalid bytes.
+fn bytes_to_string(bytes: Vec<u8>) -> String {
+    String::from_utf8(bytes).unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned())
+}
 
 fn response_cache_dir() -> PathBuf {
     dirs::home_dir()
@@ -44,6 +51,48 @@ pub fn prune_response_cache() {
             }
         }
     }
+}
+
+/// Cache clients keyed by TLS / redirect / proxy settings. Rebuilding a
+/// `reqwest::Client` per request re-creates the TLS configuration and connection
+/// pool every time, which is both slow and memory-churny.
+fn cached_client(
+    verify_ssl: bool,
+    follow_redirects: bool,
+    proxy_url: &str,
+    timeout_ms: u64,
+) -> Result<reqwest::Client, String> {
+    static CLIENTS: OnceLock<Mutex<HashMap<String, reqwest::Client>>> = OnceLock::new();
+    let key = format!("{verify_ssl}|{follow_redirects}|{}|{timeout_ms}", proxy_url.trim());
+    let cache = CLIENTS.get_or_init(|| Mutex::new(HashMap::new()));
+    if let Some(client) = cache.lock().ok().and_then(|c| c.get(&key).cloned()) {
+        return Ok(client);
+    }
+
+    let mut builder = reqwest::Client::builder()
+        .cookie_store(true)
+        .no_gzip()
+        .no_brotli()
+        .no_deflate()
+        .timeout(std::time::Duration::from_millis(timeout_ms));
+    if !verify_ssl {
+        builder = builder
+            .danger_accept_invalid_certs(true)
+            .danger_accept_invalid_hostnames(true);
+    }
+    if !follow_redirects {
+        builder = builder.redirect(reqwest::redirect::Policy::none());
+    }
+    if !proxy_url.trim().is_empty() {
+        let proxy = reqwest::Proxy::all(proxy_url.trim())
+            .map_err(|e| format!("Invalid proxy: {e}"))?;
+        builder = builder.proxy(proxy);
+    }
+    let client = builder.build().map_err(|e| e.to_string())?;
+    if let Ok(mut cache) = cache.lock() {
+        cache.insert(key, client.clone());
+    }
+    Ok(client)
 }
 
 /// Parameters for an HTTP request (mirrors `SendRequestParams`).
@@ -91,26 +140,12 @@ impl HttpService {
         let (headers, query) = apply_auth_transport(&params);
         let url = append_params(&params.url, &query)?;
 
-        let mut client_builder = reqwest::Client::builder()
-            .cookie_store(true)
-            .no_gzip()
-            .no_brotli()
-            .no_deflate()
-            .timeout(std::time::Duration::from_millis(params.timeout_ms));
-        if !params.verify_ssl {
-            client_builder = client_builder
-                .danger_accept_invalid_certs(true)
-                .danger_accept_invalid_hostnames(true);
-        }
-        if !params.follow_redirects {
-            client_builder = client_builder.redirect(reqwest::redirect::Policy::none());
-        }
-        if !params.proxy_url.trim().is_empty() {
-            let proxy = reqwest::Proxy::all(params.proxy_url.trim())
-                .map_err(|e| format!("Invalid proxy: {e}"))?;
-            client_builder = client_builder.proxy(proxy);
-        }
-        let client = client_builder.build().map_err(|e| e.to_string())?;
+        let client = cached_client(
+            params.verify_ssl,
+            params.follow_redirects,
+            &params.proxy_url,
+            params.timeout_ms,
+        )?;
 
         let mut builder = client.request(
             reqwest::Method::from_bytes(params.method.as_str().as_bytes())
@@ -254,16 +289,13 @@ impl HttpService {
         }
         let size_bytes = body_bytes.len() as u64;
         let (body, truncated, full_size, full_body_path) = if body_bytes.len() > MAX_RESPONSE_PREVIEW {
-            let preview = String::from_utf8_lossy(&body_bytes[..MAX_RESPONSE_PREVIEW]).into_owned();
+            let preview = bytes_to_string(body_bytes[..MAX_RESPONSE_PREVIEW].to_vec());
             let path = write_full_body(&body_bytes).ok();
             (preview, Some(true), Some(size_bytes), path)
         } else {
-            (
-                String::from_utf8_lossy(&body_bytes).into_owned(),
-                None,
-                None,
-                None,
-            )
+            // Reuse the collected buffer when the bytes are valid UTF-8 instead
+            // of allocating a second copy through from_utf8_lossy().
+            (bytes_to_string(body_bytes), None, None, None)
         };
 
         Ok(ResponseData {

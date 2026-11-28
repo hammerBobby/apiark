@@ -3969,13 +3969,10 @@ impl Render for AppView {
                             .child(div().flex_1().child(SharedString::from("URL")))
                             .child(div().w(px(70.0)).child(SharedString::from("Time"))),
                     );
-                    for result in results {
+                    for (idx, result) in results.iter().enumerate() {
                         table = table.child(
                             div()
-                                .id(SharedString::from(format!(
-                                    "runner-result-{}",
-                                    uuid::Uuid::new_v4()
-                                )))
+                                .id(SharedString::from(format!("runner-result-{}", idx)))
                                 .flex()
                                 .items_start()
                                 .text_xs()
@@ -3996,13 +3993,13 @@ impl Render for AppView {
                                 .child(
                                     div()
                                         .w(px(180.0))
-                                        .child(SharedString::from(result.name)),
+                                        .child(SharedString::from(result.name.clone())),
                                 )
                                 .child(
                                     div()
                                         .flex_1()
                                         .text_color(theme::text_muted())
-                                        .child(SharedString::from(result.url)),
+                                        .child(SharedString::from(result.url.clone())),
                                 )
                                 .child(
                                     div()

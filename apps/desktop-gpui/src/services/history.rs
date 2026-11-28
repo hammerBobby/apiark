@@ -118,7 +118,17 @@ impl HistoryStore {
             ],
         )
         .map_err(|e| format!("Failed to insert history: {e}"))?;
-        Ok(conn.last_insert_rowid())
+        let id = conn.last_insert_rowid();
+        // Keep the database bounded: each row can hold a few hundred KB of
+        // request/response JSON, so an unbounded table grows without limit.
+        conn.execute(
+            "DELETE FROM history WHERE id NOT IN (
+                SELECT id FROM history ORDER BY id DESC LIMIT 2000
+             )",
+            [],
+        )
+        .map_err(|e| format!("Failed to trim history: {e}"))?;
+        Ok(id)
     }
 
     /// List recent entries (newest first).

@@ -220,13 +220,15 @@ impl Render for ResponsePanel {
                 )
                 .child(div().w(px(12.0)));
 
-            let copy_text = crate::ui::json_view::try_format_json(&resp.body)
-                .unwrap_or_else(|| resp.body.clone());
+            // Read the response body only when the user actually clicks an action,
+            // instead of cloning and pretty-printing it on every render frame.
+            let copy_tabs = self.tabs.clone();
+            let save_tabs = self.tabs.clone();
+            let diff_tabs = self.tabs.clone();
             let copy_state = app_state.clone();
-            let save_text = copy_text.clone();
             let save_state = app_state.clone();
-            let diff_state = app_state.clone();
             let save_diff_state = app_state.clone();
+            let diff_view_state = app_state.clone();
             let save_diff_label = tab
                 .as_ref()
                 .map(|tab| {
@@ -238,7 +240,6 @@ impl Render for ResponsePanel {
                     )
                 })
                 .unwrap_or_else(|| format!("{} · {}ms", resp.status, resp.time_ms));
-            let save_diff_response = resp.clone();
             let mut actions = div().flex().items_center().gap_1();
             actions = actions
                 .child(
@@ -254,7 +255,16 @@ impl Render for ResponsePanel {
                         .hover(|s| s.bg(theme::bg_hover()))
                         .child(SharedString::from("Copy"))
                         .on_mouse_down(MouseButton::Left, move |_, _, cx| {
-                            cx.write_to_clipboard(ClipboardItem::new_string(copy_text.clone()));
+                            let text = copy_tabs
+                                .read(cx)
+                                .active_tab()
+                                .and_then(|tab| tab.response.as_ref())
+                                .map(|resp| {
+                                    crate::ui::json_view::try_format_json(&resp.body)
+                                        .unwrap_or_else(|| resp.body.clone())
+                                })
+                                .unwrap_or_default();
+                            cx.write_to_clipboard(ClipboardItem::new_string(text));
                             copy_state.update(cx, |state, cx| {
                                 state.show_toast("Response copied", ToastKind::Success, cx);
                             });
@@ -275,7 +285,15 @@ impl Render for ResponsePanel {
                         .on_mouse_down(
                             MouseButton::Left,
                             cx.listener(move |_, _, window, cx| {
-                                let text = save_text.clone();
+                                let text = save_tabs
+                                    .read(cx)
+                                    .active_tab()
+                                    .and_then(|tab| tab.response.as_ref())
+                                    .map(|resp| {
+                                        crate::ui::json_view::try_format_json(&resp.body)
+                                            .unwrap_or_else(|| resp.body.clone())
+                                    })
+                                    .unwrap_or_default();
                                 let state = save_state.clone();
                                 cx.spawn_in(window, async move |_, cx| {
                                     let Some(file) = rfd::AsyncFileDialog::new()
@@ -320,10 +338,17 @@ impl Render for ResponsePanel {
                         .on_mouse_down(
                             MouseButton::Left,
                             cx.listener(move |_, _, _, cx| {
+                                let response = diff_tabs
+                                    .read(cx)
+                                    .active_tab()
+                                    .and_then(|tab| tab.response.clone());
+                                let Some(response) = response else {
+                                    return;
+                                };
                                 let result = save_diff_state.update(cx, |state, cx| {
                                     state.save_diff_snapshot(
                                         save_diff_label.clone(),
-                                        &save_diff_response,
+                                        &response,
                                         cx,
                                     )
                                 });
@@ -358,7 +383,7 @@ impl Render for ResponsePanel {
                             MouseButton::Left,
                             cx.listener(move |_, _, _, cx| {
                                 cx.stop_propagation();
-                                diff_state
+                                diff_view_state
                                     .update(cx, |s, cx| s.set_overlay(Overlay::ResponseDiff, cx));
                             }),
                         ),

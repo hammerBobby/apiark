@@ -4,6 +4,7 @@ use gpui_kit::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use crate::models::{parse_url_path_variables, HttpMethod, Tab};
 use crate::services::collection as collection_service;
@@ -127,10 +128,30 @@ impl TabsState {
             return;
         };
         let path = Self::tabs_file();
-        if let Some(parent) = path.parent() {
-            let _ = std::fs::create_dir_all(parent);
+        // Persist on a single background writer so tab operations never block
+        // the UI thread. A single writer keeps writes ordered (latest wins).
+        static WRITER: OnceLock<Arc<Mutex<std::sync::mpsc::Sender<(PathBuf, String)>>>> =
+            OnceLock::new();
+        let sender = WRITER.get_or_init(|| {
+            let (tx, rx) = std::sync::mpsc::channel::<(PathBuf, String)>();
+            std::thread::Builder::new()
+                .name("apiark-tabs-writer".to_string())
+                .spawn(move || {
+                    while let Ok((path, json)) = rx.recv() {
+                        if let Some(parent) = path.parent() {
+                            let _ = std::fs::create_dir_all(parent);
+                        }
+                        if let Err(e) = std::fs::write(&path, json) {
+                            tracing::warn!("Failed to persist tabs: {e}");
+                        }
+                    }
+                })
+                .expect("failed to spawn tabs writer thread");
+            Arc::new(Mutex::new(tx))
+        });
+        if let Ok(tx) = sender.lock() {
+            let _ = tx.send((path, json));
         }
-        let _ = std::fs::write(path, json);
     }
 
     pub fn new() -> Self {
